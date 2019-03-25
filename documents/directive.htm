@@ -1,0 +1,101 @@
+<h2># ORG directive</h2>
+
+<p>https://www.nasm.us/doc/nasmdoc7.html#section-7.1 </p>
+
+<p>The function of the ORG directive is to specify the origin address which NASM 
+will assume the program begins at when it is loaded into memory.</p>
+
+<p>For example, the following code will generate the longword 0x00000104:</p>
+
+<pre><code>            org     0x100 
+            dd      label 
+label:
+</code></pre>
+
+<p>Unlike the ORG directive provided by MASM-compatible
+assemblers, which allows you to jump around in the object file
+and overwrite code you have already generated, <strong>NASM's ORG does
+exactly what the directive says: origin. Its sole function is
+to specify one <em>offset</em> which is added to all internal address
+references within the section</strong>; it does not permit any of the
+trickery that MASM's version does.</p>
+
+<h2># RESB and its friends</h2>
+
+<p>https://www.nasm.us/doc/nasmdoc3.html#section-3.2.2 </p>
+
+<p>RESB, RESW, RESD, RESQ, REST, RESO, RESY and RESZ are designed to be used in
+the BSS section of a module: they declare uninitialized storage space. Each
+takes a single operand, which is the number of bytes, words, doublewords or
+whatever to reserve. </p>
+
+<pre><code>    buffer:         resb    64              ; reserve 64 bytes 
+    wordvar:        resw    1               ; reserve a word 
+    realarray       resq    10              ; array of ten reals 
+    ymmval:         resy    1               ; one YMM register 
+    zmmvals:        resz    32              ; 32 ZMM registers
+</code></pre>
+
+<h2># INCBIN: Including External Binary Files</h2>
+
+<p>https://www.nasm.us/doc/nasmdoc3.html#section-3.2.2 </p>
+
+<p>INCBIN is borrowed from the old Amiga assembler DevPac: it includes a binary
+file verbatim into the output file. This can be handy for (for example)
+including graphics and sound data directly into a game executable file. It can
+be called in one of these three ways:</p>
+
+<pre><code>incbin  "file.dat"             ; include the whole file 
+incbin  "file.dat",1024        ; skip the first 1024 bytes 
+incbin  "file.dat",1024,512    ; skip the first 1024, and 
+                               ; actually include at most 512
+</code></pre>
+
+<h2># 3.2.4 EQU: Defining Constants</h2>
+
+<p>https://www.nasm.us/doc/nasmdoc3.html#section-3.2.2 </p>
+
+<p>EQU defines a symbol to a given constant value: when EQU is used, the source
+line must contain a label. The action of EQU is to define the given label name
+to the value of its (only) operand. This definition is absolute, and cannot
+change later. So, for example,</p>
+
+<pre><code>    message         db      'hello, world' 
+    msglen          equ     $-message
+</code></pre>
+
+<p>defines msglen to be the constant 12. msglen may not then be redefined later.
+This is <strong>not a preprocessor definition either: the value of msglen is evaluated
+once, using the value of $</strong> (see section 3.5 for an explanation of $) at the
+point of definition</p>
+
+<h2># TIMES: Repeating Instructions or Data</h2>
+
+<p>https://www.nasm.us/doc/nasmdoc3.html#section-3.2.2 </p>
+
+<p>The TIMES prefix causes the instruction to be assembled multiple times. This
+is partly present as NASM's equivalent of the DUP syntax supported by
+MASM-compatible assemblers, in that you can code</p>
+
+<pre><code>zerobuf:        times 64 db 0
+</code></pre>
+
+<p>or similar things; but TIMES is more versatile than that. The argument to
+TIMES is not just a numeric constant, but a numeric expression, so you can do
+things like</p>
+
+<pre><code>buffer: db      'hello, world' 
+times 64-$+buffer db ' '
+</code></pre>
+
+<p>which will store exactly enough spaces to make the total length of
+buffer up to 64. Finally, TIMES can be applied to ordinary
+instructions, so you can code trivial unrolled loops in it:</p>
+
+<pre><code> times 100 movsb
+</code></pre>
+
+<p>Note that there is no effective difference between <code>times 100
+resb 1</code> and <code>`resb 100</code>, except that the latter will be assembled
+about 100 times faster due to the internal structure of the
+assembler.</p>
