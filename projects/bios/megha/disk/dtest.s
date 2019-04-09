@@ -17,6 +17,9 @@ RootEntries:	dw 224
 
 filesize:	resd 1
 filesector:	resw 1
+filereqsize:	dw   10
+fileremsize	dw   10
+
 buffer 		equ 0x400
 
 section .text
@@ -75,13 +78,15 @@ searchRoot:
 	xor bx, bx
 .searchRootEntry:
 	mov cx, 11
-	lea si, [buffer + bx + 32]
+	;lea si, [buffer + bx + 32]
+	lea si, [buffer + bx]
 	mov di, bootfilename
 	repe cmpsb
 	je .filefound
 	
 	; not a match, we go to next entry
-	add bx, 64
+	;add bx, 64
+	add bx, 32
 	cmp bx, 512
 	je .filenotfound
 
@@ -97,18 +102,51 @@ searchRoot:
 .filefound:
 	pop cx
 	; read the file start sector
-	mov ax, word [buffer + bx + 32 + 0x1A]
+	mov ax, word [buffer + bx + 0x1A]
 	mov [filesector], ax
 
 	; read file size at 32 bit number
-	mov ax, word [buffer + bx + 32 + 0x1C]	; first 16 bits of file size
+	mov ax, word [buffer + bx + 0x1C]	; first 16 bits of file size
 	mov [filesize], ax
 
-	mov ax, word [buffer + bx + 32 + 0x1E]	; second 16 bits of file size
+	mov ax, word [buffer + bx + 0x1E]	; second 16 bits of file size
 	mov [filesize+2], ax
 	
 	; print a message and exit
 	printString successstr
+
+readfiledata:
+	; set the requested size of the file = file size if the former is
+	; greater.
+	; TODO: do 32 bit compare
+	mov ax, [filesize]
+	cmp [filereqsize], ax		
+	jle  .lesser			; requested size =< filesize
+
+	; requested size > file size
+	mov [filereqsize], ax		; requested size = filesize 
+.lesser:
+	; keep the requested size as backup for later
+	; needed for calculation of total bytes read
+	mov ax, [filereqsize]
+	mov [fileremsize], ax		; reading will continue while 
+					; remaining size is > 0
+	; setup the counter register
+.repeat:
+	cmp [fileremsize],word 512
+	ja .greater
+
+	; file remaining size >= 512
+	mov cx, [fileremsize]
+	jmp .readDataSector
+
+.greater:
+	sub word [fileremsize], 512
+	mov cx, 512
+
+.readDataSector:
+	lea ax, [filesector -2 + 33]	; do calculation using lea
+	readSector ax, buffer		; read sector to internal buffer
 
 	jmp exit
 
