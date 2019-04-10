@@ -7,6 +7,7 @@ section .data
 
 successstr: 	db	'Success$'
 failedstr:  	db	'Failed$'
+;bootfilename:	db	'OSSPLASHBIN'
 bootfilename:	db	'FILE1   TXT'
 
 ReservedSector: dw 1
@@ -18,8 +19,8 @@ RootEntries:	dw 224
 
 filesize:	resd 1
 filesector:	resw 1
-filereqsize:	dw   0x2b
-fileremsize	dw   0x2b
+filereqsize:	dw   64000
+fileremsize	resw 1
 
 buffer 		equ 0x400
 obuffer		equ 0x600
@@ -39,10 +40,7 @@ section .text
 ; Output:
 ;	The flags from INT 13 are preserved.
 %macro readSector 2
-	push ax
-	push bx
-	push cx
-	push dx
+	pusha		; I used push and pop a just to same some memory
 
 	mov ax, %1
 	call csh	; seetup the registers properly for INT 13H
@@ -51,11 +49,8 @@ section .text
 	mov al, 01	; read one sector
 	mov bx, %2
 	int 0x13
-	
-	pop dx
-	pop cx
-	pop bx
-	pop ax
+
+	popa
 %endmacro
 	; ******************************************************
 	; MAIN CODE BLOCK
@@ -69,6 +64,16 @@ section .text
 	jc failed
 
 	; disk reset succeded
+	; read the following sector
+	;mov word [filesector], 0x4
+	;mov dword [filesize], 0x40
+	;jmp readfiledata
+
+	; switch to 0x13 mode
+	;mov ah, 0
+	;mov al, 0x13
+	;int 0x10
+
 	; Read the directory and search for file
 searchRoot:
 	mov cx, [RootDirSectors]
@@ -122,7 +127,7 @@ readfiledata:
 	; TODO: do 32 bit compare
 	mov ax, [filesize]
 	cmp [filereqsize], ax		
-	jle  .lesser			; requested size =< filesize
+	jbe  .lesser			; requested size =< filesize
 
 	; requested size > file size
 	mov [filereqsize], ax		; requested size = filesize 
@@ -190,6 +195,9 @@ readfiledata:
 	shr ax, 4
 .checkForLastSector:
 	cmp ax, 0xFFF
+	mov [filesector], ax		; save the sector to the 'filesector'
+					; variable, so that we read that sector
+					; after we jump
 	jnz .repeat
 
 	; reading is complete (print the file content)
@@ -201,7 +209,7 @@ readfiledata:
 .rep:
 	lodsb
 	mov [es:di],al
-	mov [es:di+1],byte 0x4
+	mov [es:di+1], byte 0x4
 	add di, 2
 	loop .rep
 
