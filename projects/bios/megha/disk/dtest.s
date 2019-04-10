@@ -7,8 +7,9 @@ section .data
 
 successstr: 	db	'Success$'
 failedstr:  	db	'Failed$'
-bootfilename:	db	'OSSPLASHBIN'
+bootfilename:	db	'FILE1   TXT'
 
+ReservedSector: dw 1
 BytesPerSector: dw 512
 HeadCount:	dw 2
 SectorsPerTrack:dw 18
@@ -17,10 +18,11 @@ RootEntries:	dw 224
 
 filesize:	resd 1
 filesector:	resw 1
-filereqsize:	dw   10
-fileremsize	dw   10
+filereqsize:	dw   0x2b
+fileremsize	dw   0x2b
 
 buffer 		equ 0x400
+obuffer		equ 0x600
 
 section .text
 
@@ -65,7 +67,7 @@ section .text
 	int 0x13
 	
 	jc failed
-	
+
 	; disk reset succeded
 	; Read the directory and search for file
 searchRoot:
@@ -78,7 +80,6 @@ searchRoot:
 	xor bx, bx
 .searchRootEntry:
 	mov cx, 11
-	;lea si, [buffer + bx + 32]
 	lea si, [buffer + bx]
 	mov di, bootfilename
 	repe cmpsb
@@ -145,8 +146,64 @@ readfiledata:
 	mov cx, 512
 
 .readDataSector:
-	lea ax, [filesector -2 + 33]	; do calculation using lea
+	mov ax, [filesector]
+	add ax, 31			; sector = sector -2 + 33
 	readSector ax, buffer		; read sector to internal buffer
+
+	; we copy as many bytes in the CX register from the internal buffer to
+	; the output buffer
+	cld				; set direcection flag = 0 (increment)
+	mov si, buffer
+	mov di, obuffer
+	rep movsb
+.getNextSector:
+	; now we get the next sector to read
+	mov ax, [filesector]
+	mov bx, ax
+	shr ax, 1
+	add ax, bx			; [filesector] * 3/2
+
+	; we normalize the byte location in ax.
+	; example: byte 513 in FAT table, is byte 1 of sector 2 of disk
+	xor dx, dx
+	div word [BytesPerSector]
+	
+	; dx contains the normalized byte to be read from sector in ax
+	add ax, [ReservedSector]	; take into account reserved sector
+
+	; read the sector (containing FAT entry)
+	readSector ax, buffer
+
+	; read the word located at DX location
+	mov bx, dx			; DX cannot be used in effective
+					; addtessing. So we use BX
+	mov ax, [buffer + bx]
+
+	; check if byte location is odd or even
+	test word [filesector], 0x1
+	jnz .odd
+	
+	; Byte location is even
+	and ax, 0xFFF
+	jmp .checkForLastSector
+.odd:
+	shr ax, 4
+.checkForLastSector:
+	cmp ax, 0xFFF
+	jnz .repeat
+
+	; reading is complete (print the file content)
+	mov cx, [filereqsize]
+	mov si, 0x600
+	mov ax, 0xB800
+	mov es, ax
+	mov di, 0
+.rep:
+	lodsb
+	mov [es:di],al
+	mov [es:di+1],byte 0x4
+	add di, 2
+	loop .rep
 
 	jmp exit
 
