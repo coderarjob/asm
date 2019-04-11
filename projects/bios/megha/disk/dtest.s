@@ -8,7 +8,7 @@ section .data
 successstr: 	db	'Success$'
 failedstr:  	db	'Failed$'
 ;bootfilename:	db	'OSSPLASHBIN'
-bootfilename:	db	'FILE1   TXT'
+bootfilename:	db	'FOO     TXT'
 
 ReservedSector: dw 1
 BytesPerSector: dw 512
@@ -19,7 +19,7 @@ RootEntries:	dw 224
 
 filesize:	resd 1
 filesector:	resw 1
-filereqsize:	dw   64000
+filereqsize:	dw   20
 fileremsize	resw 1
 
 buffer 		equ 0x400
@@ -139,6 +139,9 @@ readfiledata:
 					; remaining size is > 0
 	; setup the counter register
 .repeat:
+	cmp [fileremsize], word 0
+	je .readFileEnd
+
 	cmp [fileremsize],word 512
 	ja .greater
 
@@ -147,7 +150,6 @@ readfiledata:
 	jmp .readDataSector
 
 .greater:
-	sub word [fileremsize], 512
 	mov cx, 512
 
 .readDataSector:
@@ -157,10 +159,15 @@ readfiledata:
 
 	; we copy as many bytes in the CX register from the internal buffer to
 	; the output buffer
+	mov dx, cx
 	cld				; set direcection flag = 0 (increment)
 	mov si, buffer
 	mov di, obuffer
 	rep movsb
+
+	; update remaining size variable.
+	sub dx, cx			; number of bytes read in dx
+	sub word [fileremsize], dx	; remaining = remaining - bytes read
 .getNextSector:
 	; now we get the next sector to read
 	mov ax, [filesector]
@@ -199,6 +206,7 @@ readfiledata:
 					; variable, so that we read that sector
 					; after we jump
 	jnz .repeat
+.readFileEnd:
 
 	; reading is complete (print the file content)
 	mov cx, [filereqsize]
