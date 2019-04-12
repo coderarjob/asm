@@ -1,13 +1,13 @@
 ; Dos application that used bios INT 13 calls to read search for a file and
 ; load it into a buffer and print the buffer on the screen.
 
-	org 0x7C00
 
+	org 0x7C00
 	; ******************************************************
 	; BIOS PARAMETER BLOCK
 	; ******************************************************
 
-	jmp boot_main
+	jmp near boot_main
 
 	OEMLabel		db "ARJOBOOT"	; Disk label
 	BytesPerSector		dw 512		; Bytes per sector
