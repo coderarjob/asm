@@ -26,6 +26,6 @@ void print(char *str)
 void dosmain()
 {
 	// DOS system call expects strings to be terminated by $.
-	print("Hello world");
+	print("Hello world$");
 }
 
