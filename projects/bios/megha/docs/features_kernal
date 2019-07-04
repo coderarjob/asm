@@ -47,3 +47,4 @@ System call list
 		}
 
 [ ]-    Process -           int exec(filename, memory_location)
+		Returns				0

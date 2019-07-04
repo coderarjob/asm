@@ -1,6 +1,16 @@
-; Dos application that used bios INT 13 calls to read search for a file and
-; load it into a buffer and print the buffer on the screen.
-
+; MEGHA BOOT LOADER
+; Version: 0.02
+;
+; Contains FAT12 driver, that reads a bitmap file from the disk to a buffer and
+; prints the buffer to the screen.
+;
+; Changes from version 0.01 (4th July 2019)
+; -------------------------
+; * Removed the 'Welcome' message. Directly boots into the splashscreen now.
+; * Removed 'filereqsize', 'filesize' (these were not really needed, we want to
+;   load the whole file, so stating required size was useless).
+; * Changed 'osegoffset' from EQU to RESW.
+; * Resulted in reducing the file size from 503 bytes to 430 bytes in v0.02.
 
 	org 0x7C00
 	; ******************************************************
@@ -73,11 +83,17 @@
 	; MAIN CODE BLOCK
 	; ******************************************************
 boot_main:	
-	printString bootwelcome
-
-	; wait for key press
-	mov ah, 0
-	int 0x16
+	; Setup the Stack
+	; The Stack is 4k in size and starts at location 0x7BFF or 6C0:FFF
+	; Each of the segment starts at 16 bit boundary an 4k space must be
+	; allocated from the start of that segment. Therefore
+	; 	segment * 0x10 + 0xFFF = 0x7BFF => segment = 0x6C0
+	;
+	cli		; disable interrupts
+	mov ax, 0x6C0
+	mov ss, ax
+	mov sp, 0xFFF
+	sti		; enable interrupts
 
 	; reset the floppy drive
 	mov ah, 0
@@ -88,7 +104,7 @@ boot_main:
 
 	; switch to 0x13 mode
 	mov ah, 0
-	mov al, 0x13	; 256 color pallet 320*200 vga
+	mov al, 0x13	; 256 color palette 320*200 vga
 	int 0x10
 
 	; Read the directory and search for file
@@ -119,7 +135,7 @@ searchRoot:
 	pop cx
 	inc ax	; next sector
 	loop .readsector
-	;printString failedstr
+	printString filenotfoundstr
 	jmp exit
 
 .filefound:
@@ -130,25 +146,25 @@ searchRoot:
 
 	; read file size at 32 bit number
 	mov ax, word [buffer + bx + 0x1C]	; first 16 bits of file size
-	mov [filesize], ax
+	mov [fileremsize], ax
 
 	mov ax, word [buffer + bx + 0x1E]	; second 16 bits of file size
-	mov [filesize+2], ax
+	mov [fileremsize+2], ax
 readfiledata:
 	; set the requested size of the file = file size if the former is
 	; greater.
 	; TODO: do 32 bit compare
-	mov ax, [filesize]
-	cmp [filereqsize], ax		
-	jbe  .lesser			; requested size =< filesize
+	;mov ax, [filesize]
+	;cmp [filereqsize], ax		
+	;jbe  .lesser			; requested size =< filesize
 
 	; requested size > file size
-	mov [filereqsize], ax		; requested size = filesize 
-.lesser:
+	;mov [filereqsize], ax		; requested size = filesize 
+;.lesser:
 	; keep the requested size as backup for later
 	; needed for calculation of total bytes read
-	mov ax, [filereqsize]
-	mov [fileremsize], ax		; reading will continue while 
+	;mov ax, [filereqsize]
+	;mov [fileremsize], ax		; reading will continue while 
 					; remaining size is > 0
 	; setup the counter register
 .repeat:
@@ -172,19 +188,21 @@ readfiledata:
 
 	; we copy as many bytes in the CX register from the internal buffer to
 	; the output buffer
-	mov dx, cx
-	mov bx, [filereqsize]		; read bytes = required - remaining
-	sub bx, [fileremsize]		; used to increment the out buffer
 	push es				; preserve the ES value before change
+	mov dx, cx
+	;mov bx, [filereqsize]		; read bytes = required - remaining
+	;sub bx, [fileremsize]		; used to increment the out buffer
 	cld				; set direcection flag = 0 (increment)
 	mov si, buffer
 	mov ax, osegment		; set up destination address
 	mov es, ax
-	lea di, [osegoffset + bx]
+	mov di, [osegoffset]
 	rep movsb
 	pop es				; restore the ES register
 	; update remaining size variable.
 	sub word [fileremsize], dx	; remaining = remaining - bytes read
+	add word [osegoffset], dx	; osegoffset now points to the next
+					;location to write to.
 .getNextSector:
 	; now we get the next sector to read
 	mov ax, [filesector]
@@ -225,9 +243,15 @@ readfiledata:
 	jnz .repeat
 .readFileEnd:
 
-
-	; reading is complete (print the file content)
+	; reading is complete
+	
+	; halt
 	jmp exit
+
+	; jump to kernel code
+	;mov ax, 0x800
+	;mov ds,ax
+	;jmp 0x800:0
 
 failed:
 	; failed
@@ -239,23 +263,20 @@ exit:
 
 %include "../common/readsector.s"
 
-bootwelcome	db	'Press any key to boot from floppy...',0
-successstr: 	db	'Success',0
-failedstr:  	db	'Failed',0
+failedstr:  	db	'DRIVE ERROR',0
+filenotfoundstr:db      'KERNEL IS MISSING.',0
 
 bootfilename:	db	'OSSPLASHBIN'
+;bootfilename:	db	'KERNEL     '
 
 RootDirSectors:	dw 	14
 
-filesize:	resd 	1
 filesector:	resw 	1
-
-filereqsize:	dw   	64000
 fileremsize	resw 	1
 
-;buffer 	equ 	0x7E00
-osegoffset	equ 	0x0
+osegoffset	resw	0x0
 osegment	equ 	0xA000
+;osegment	equ 	0x800
 
     ; ******************************************************
     ; END OF BOOT LOADER

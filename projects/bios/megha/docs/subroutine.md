@@ -68,7 +68,7 @@ arguments from the registers. The first Argument will be in AX, and the second
 in BX and so on. There ofcouse can be 6 arguments this way. When ever location
 is specified a segment register will always be used.
 
-WHY STACK CANNOT BE USED
+WHY STACK CAN/CANNOT BE USED
 ------------------------
 I first thought that stack cannot be used to pass arguments to kernel 
 subroutines because the kernel and the user program can reside in different 
