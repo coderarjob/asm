@@ -1,5 +1,5 @@
 ; MEGHA BOOT LOADER
-; Version: 0.02
+; Version: 0.03
 ;
 ; Contains FAT12 driver, that reads a bitmap file from the disk to a buffer and
 ; prints the buffer to the screen.
@@ -43,21 +43,12 @@
 	; MACRO BLOCK
 	; ******************************************************
 
-%macro	printString 1
-	push ax
+%macro printString 1
 	push si
-
-	mov ax, %1
-	mov si, ax
-%%.repeat:
-	lodsb
-	mov ah, 0xE
-	int 0x10
-	cmp al, 0
-	jne %%.repeat
-
+	mov si, %1
+	;call printstr
+	int 0x31
 	pop si
-	pop ax
 %endmacro
 
 ; Reads a sector into a buffer
@@ -90,193 +81,72 @@ boot_main:
 	; 	segment * 0x10 + 0xFFF = 0x7BFF => segment = 0x6C0
 	;
 	cli		; disable interrupts
-	mov ax, 0x6C0
-	mov ss, ax
-	mov sp, 0xFFF
+	;mov ax, 0x6C0
+	;mov ss, ax
+	;mov sp, 0xFFF
 	sti		; enable interrupts
 
 	; reset the floppy drive
 	mov ah, 0
 	mov dl, 0
 	int 0x13
-	
-	jc failed
+	jc failed_drive_error 	; drive error
 
-	; switch to 0x13 mode
-	mov ah, 0
-	mov al, 0x13	; 256 color palette 320*200 vga
-	int 0x10
+	; install loadFile to IVT
+	xor ax, ax
+	mov gs, ax
+	mov [gs:0x30*4], word loadFile
+	mov [gs:0x30*4+2], cs
+
+	; install printstr to IVT
+	mov [gs:0x31*4], word printstr
+	mov [gs:0x31*4+2], cs
 
 	; Read the directory and search for file
-searchRoot:
-	mov cx, [RootDirSectors]
-	mov ax, 19		; root dir starts at sector 19
-.readsector:
-	readSector ax,buffer
 
-	push cx
-	xor bx, bx
-.searchRootEntry:
-	mov cx, 11
-	lea si, [buffer + bx]
-	mov di, bootfilename
-	repe cmpsb
-	je .filefound
-	
-	; not a match, we go to next entry
-	;add bx, 64
-	add bx, 32
-	cmp bx, 512
-	je .filenotfound
+	mov ax, 0x800
+	mov bx, 0x0
+	mov cx, ds
+	mov dx, bootfile
 
-	; search this directry entry for the file.
-	jnz .searchRootEntry
-.filenotfound:
-	pop cx
-	inc ax	; next sector
-	loop .readsector
-	printString filenotfoundstr
-	jmp exit
+	int 0x30
+	cmp ax, 0
+	je failed_file_not_found
 
-.filefound:
-	pop cx
-	; read the file start sector
-	mov ax, word [buffer + bx + 0x1A]
-	mov [filesector], ax
-
-	; read file size at 32 bit number
-	mov ax, word [buffer + bx + 0x1C]	; first 16 bits of file size
-	mov [fileremsize], ax
-
-	mov ax, word [buffer + bx + 0x1E]	; second 16 bits of file size
-	mov [fileremsize+2], ax
-readfiledata:
-	; set the requested size of the file = file size if the former is
-	; greater.
-	; TODO: do 32 bit compare
-	;mov ax, [filesize]
-	;cmp [filereqsize], ax		
-	;jbe  .lesser			; requested size =< filesize
-
-	; requested size > file size
-	;mov [filereqsize], ax		; requested size = filesize 
-;.lesser:
-	; keep the requested size as backup for later
-	; needed for calculation of total bytes read
-	;mov ax, [filereqsize]
-	;mov [fileremsize], ax		; reading will continue while 
-					; remaining size is > 0
-	; setup the counter register
-.repeat:
-	cmp [fileremsize], word 0
-	je .readFileEnd
-
-	cmp [fileremsize],word 512
-	ja .greater
-
-	; file remaining size >= 512
-	mov cx, [fileremsize]
-	jmp .readDataSector
-
-.greater:
-	mov cx, 512
-
-.readDataSector:
-	mov ax, [filesector]
-	add ax, 31			; sector = sector -2 + 33
-	readSector ax, buffer		; read sector to internal buffer
-
-	; we copy as many bytes in the CX register from the internal buffer to
-	; the output buffer
-	push es				; preserve the ES value before change
-	mov dx, cx
-	;mov bx, [filereqsize]		; read bytes = required - remaining
-	;sub bx, [fileremsize]		; used to increment the out buffer
-	cld				; set direcection flag = 0 (increment)
-	mov si, buffer
-	mov ax, osegment		; set up destination address
+	mov ax, 0x800
+	mov ds, ax
 	mov es, ax
-	mov di, [osegoffset]
-	rep movsb
-	pop es				; restore the ES register
-	; update remaining size variable.
-	sub word [fileremsize], dx	; remaining = remaining - bytes read
-	add word [osegoffset], dx	; osegoffset now points to the next
-					;location to write to.
-.getNextSector:
-	; now we get the next sector to read
-	mov ax, [filesector]
-	mov bx, ax
-	shr ax, 1
-	add ax, bx			; [filesector] * 3/2
+	mov fs, ax
+	mov gs, ax
+	jmp 0x800:0x0
 
-	; we normalize the byte location in ax.
-	; example: byte 513 in FAT table, is byte 1 of sector 2 of disk
-	xor dx, dx
-	div word [BytesPerSector]
-	
-	; dx contains the normalized byte to be read from sector in ax
-	add ax, [ReservedSector]	; take into account reserved sector
+; ======================================================================
+; ======================================================================
 
-	; read the sector (containing FAT entry)
-	readSector ax, buffer
-
-	; read the word located at DX location
-	mov bx, dx			; DX cannot be used in effective
-					; addtessing. So we use BX
-	mov ax, [buffer + bx]
-
-	; check if byte location is odd or even
-	test word [filesector], 0x1
-	jnz .odd
-	
-	; Byte location is even
-	and ax, 0xFFF
-	jmp .checkForLastSector
-.odd:
-	shr ax, 4
-.checkForLastSector:
-	cmp ax, 0xFFF
-	mov [filesector], ax		; save the sector to the 'filesector'
-					; variable, so that we read that sector
-					; after we jump
-	jnz .repeat
-.readFileEnd:
-
-	; reading is complete
-	
-	; halt
-	jmp exit
-
-	; jump to kernel code
-	;mov ax, 0x800
-	;mov ds,ax
-	;jmp 0x800:0
-
-failed:
-	; failed
+failed_drive_error:
 	printString failedstr
 	jmp exit
-
+failed_file_not_found:
+	printString filenotfoundstr
 exit:	
 	jmp $
 
 %include "../common/readsector.s"
+%include "loadFile.s"
+%include "printstr.s"
 
-failedstr:  	db	'DRIVE ERROR',0
-filenotfoundstr:db      'KERNEL IS MISSING.',0
-
-bootfilename:	db	'OSSPLASHBIN'
-;bootfilename:	db	'KERNEL     '
-
+failedstr:  	db	'0',0
+filenotfoundstr:db      '1',0
+bootfile: db 'LOADER     '
+; ************************************** Used by loadFile
+bootfilename:	resb	11
 RootDirSectors:	dw 	14
-
 filesector:	resw 	1
 fileremsize	resw 	1
-
-osegoffset	resw	0x0
-osegment	equ 	0xA000
-;osegment	equ 	0x800
+osegoffset	resw	1
+osegment	resw	1
+;osegment	equ 	0xA000
+; **************************************
 
     ; ******************************************************
     ; END OF BOOT LOADER
