@@ -1,3 +1,25 @@
+; ------------------------------------------- MACRO BLOCK BEGINS
+; Reads a sector into a buffer
+; Input:
+;	Argument 1 - sector number
+;	Argument 2 - buffer location
+; Output:
+;	The flags from INT 13 are preserved.
+%macro readSector 2
+	pusha		; I used push and pop a just to same some memory
+
+	mov ax, %1
+	call csh	; seetup the registers properly for INT 13H
+
+	mov ah, 02	; sector read system call
+	mov al, 01	; read one sector
+	mov bx, %2
+	int 0x13
+
+	popa
+%endmacro
+; ------------------------------------------- MACRO BLOCK ENDS
+
 ; LOADS WHOLE FILE FROM THE FLOPPY DISK TO MEMORY.
 ; Input: AX - Memory segment of the destination address
 ;	 BX - Memory offset in the segment
@@ -164,3 +186,4 @@ loadFile:
 	iret
 
 .ret dw 0
+%include "../common/readsector.s"

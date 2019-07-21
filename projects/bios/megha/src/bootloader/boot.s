@@ -51,25 +51,6 @@
 	pop si
 %endmacro
 
-; Reads a sector into a buffer
-; Input:
-;	Argument 1 - sector number
-;	Argument 2 - buffer location
-; Output:
-;	The flags from INT 13 are preserved.
-%macro readSector 2
-	pusha		; I used push and pop a just to same some memory
-
-	mov ax, %1
-	call csh	; seetup the registers properly for INT 13H
-
-	mov ah, 02	; sector read system call
-	mov al, 01	; read one sector
-	mov bx, %2
-	int 0x13
-
-	popa
-%endmacro
 	; ******************************************************
 	; MAIN CODE BLOCK
 	; ******************************************************
@@ -81,9 +62,9 @@ boot_main:
 	; 	segment * 0x10 + 0xFFF = 0x7BFF => segment = 0x6C0
 	;
 	cli		; disable interrupts
-	;mov ax, 0x6C0
-	;mov ss, ax
-	;mov sp, 0xFFF
+	mov ax, 0x6C0
+	mov ss, ax
+	mov sp, 0xFFF
 	sti		; enable interrupts
 
 	; reset the floppy drive
@@ -110,16 +91,18 @@ boot_main:
 	mov dx, bootfile
 
 	int 0x30
-	cmp ax, 0
-	je failed_file_not_found
+	cmp ax, 0			; Check if read was successful
+	je failed_file_not_found	; Show error message if read failed.
 
+	; -------------------- JUMP TO LOADER
+	; Read was a success, we prepare the segment registers and jump.
 	mov ax, 0x800
 	mov ds, ax
 	mov es, ax
 	mov fs, ax
 	mov gs, ax
 	jmp 0x800:0x0
-
+	;--------------------- 
 ; ======================================================================
 ; ======================================================================
 
@@ -131,13 +114,13 @@ failed_file_not_found:
 exit:	
 	jmp $
 
-%include "../common/readsector.s"
 %include "loadFile.s"
 %include "printstr.s"
 
 failedstr:  	db	'0',0
 filenotfoundstr:db      '1',0
 bootfile: db 'LOADER     '
+;bootfile: db 'PRINT      '
 ; ************************************** Used by loadFile
 bootfilename:	resb	11
 RootDirSectors:	dw 	14

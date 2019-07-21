@@ -1,0 +1,89 @@
+* Alocating local variables inside functions
+
+	--------------------- c
+	uint16 value = 19;
+
+	--------------------- asm (att)
+	movw $19, -6(%ebp)			; Local variables are allocated on the stack.
+								; The EBP register marks the beginning of the
+								;stack for the function. Every allocation will
+								;be BELOW this mark.
+								;Here 'value' variable is allocated storage at 6
+								;bytes down the top (the address of which is
+								;saved in EBP register).
+
+	--------------------- asm (intel)
+	mov word [ebp - 6], 19
+
+* Pointer memory allocation and assignment.
+
+	--------------------- c
+	uint16 value = 19;
+	uint16 *val = &value;
+
+	--------------------- asm (att)
+	movw $19, -6(%ebp)			; memory of 'value' variable is allocated in
+								; stack, at 6 bytes down the value in EBP.
+								; 19 is saved at location, (value in) EBP -6
+
+	leal -6(%ebp), %eax
+	movw %eax, -4(%ebp)
+
+	---------------------- asm (intel)
+	mov word [ebp - 6], 19
+	lea eax, [ebp - 6]
+	mov [ebp - 4], eax
+
+* Variable passing in a function
+
+	----------------------- c
+
+	uint16 add(uint16, uint16);
+	uint16 val = add(2,3);
+	
+	------------------------ asm (att)
+
+	pushl $3
+	pushl $2
+	call add				; return value will be in ax (returns word length)
+	addl $8, %esp				
+	movw %ax, -4(%ebp)		; 'val' variable is in stack at location 4 bytes
+							; below the value in ebp.
+							; Stores the value in ax at the location value
+							; stored in EBP - 4
+
+	------------------------ asm (intel)
+	push dword 3
+	push dword 2
+	call add
+	add esp, 8
+	mov [ebp - 4], ax
+
+* Passing pointer to another function
+
+	------------------------ c
+	foo(&value);
+
+	------------------------ asm (att)
+
+	leal -6(%ebp), %eax		; value is assigned in the stack (6 bytes down
+							; value in ebp.
+							; eax = value in (ebp - 6)
+	pushl eax
+	call foo
+	add $4, %esp
+
+	----------------------- asm (intel)
+
+	lea eax, [ebp - 6]
+
+	push dword eax
+	call foo
+	add esp, 4
+
+* Memory allocation and value assignment to an local array
+
+	------------------------ c
+	uint8 ar[5];
+	ar[3] = 13;
+
