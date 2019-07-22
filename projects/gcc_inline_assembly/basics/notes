@@ -86,4 +86,137 @@
 	------------------------ c
 	uint8 ar[5];
 	ar[3] = 13;
+	ar[0] = 12;
+	------------------------- asm (att)			;|--------------| ---> EBP
+	mov $13, -2(%ebp)							;|     ar[4]    |
+	mov $12, -5(%ebp)							;|--------------| ---> -1
+												;|     ar[3]    |
+												;|--------------| ---> -2
+												;|     ar[2]    |
+												;|--------------| ---> -3
+												;|     ar[1]    |
+												;|--------------| ---> -4
+												;|     ar[0]    |
+												;|--------------| ---> -5
+	The 1st element in the array resides furthest down the stack.
+	This is done to keep the idea that a[1] resides in an upper address than
+	a[0] and so on. a[1] must reside at an higher memory address than a[0], in
+	order for the pointer arithatic to work.
 
+	---------------------------- asm (intel)
+	mov byte [ebp - 2], 13
+	mov byte [ebp -5], 12
+
+* Pointer arithmatic
+
+	----------------------------- c
+	uint8 ar[5];
+	*(&ar[0] + 3) = 14;			// or ar[3] = 14
+
+	------------------------------ asm (att)
+	leal -5(%ebp), %eax			; EAX = &a[0]
+	addl $3, %eax
+	movb $14, (%eax)
+	------------------------------ asm (intel)
+	lea eax, [ebp - 5]
+	add eax, 3
+	mov [eax], byte 14
+
+* Memory allocation for a n array with initializers
+
+	------------------------------- c
+	uint8 ar[] = {1,2,3,4,5};
+	uint8 ar1[] = {1,2,3,4,5,6,7};
+
+	ar[2] = 10;
+	ar1[2] = 6;
+
+	-------------------------------- asm (att)
+	-------------------------------- asm (intel)
+
+* Accessing a global variable
+	
+	--------------------------- c
+	uint8 value1 = 0;
+	uint8 value;
+
+	void main()
+	{
+		value = 19;
+		value1 = 12;
+	}
+
+	-------------------------- asm (att)
+
+	The global variables are stored in the data section (or as per the loader
+	script). Normally this data section resides after the .text section ends.
+
+	The the global variables value and value1 are replaces by just an address
+	when they are used.
+	
+	Below is the disassembly (this was compiled as a .com file, so the
+	variables are offet at 0x100, 'value1' is at 0x132 instead of 0x32 for that
+	reason)
+	  ...
+	  23:	movb   $0x13,0x132 			--> value1  = 19
+	  28:	movb   $0xc,0x133  			--> value   = 12
+	  2d:	nop
+	  2e:	pop    %ebp
+	  30:	retl   
+	  32:	.byte 0x0  					---> value1
+	 									---> value (not initialized to zero)
+
+	---------------------------- asm (intel)
+
+	...
+	23: mov [0x132], byte 0x13
+	28: mov [0x133], byte 0xc
+	2d: nop
+	2e: pop ebp
+	30: ret
+	32: db 0x0
+	
+	
+* Assigning value to a global pointer variable
+
+	--------------------------- c
+
+	uint8 *value;
+
+	void main()
+	{
+		uint8 foo = 9;
+		value = &foo;
+	}
+
+	--------------------------- asm (att)
+
+	* Global variable 'uint8 *value' will be in the .data section.
+	  (address 0x13c in the snippet below)
+	* Local variable foo will be assigned in the stack
+
+	movb $9, -1(%ebp)
+	leal -1(%ebp), %eax
+	movl %eax, 0x13c
+
+	------------------------------ asm (intel)
+
+	mov [ebp - 1], byte 9
+	lea eax, [ebp -1]
+	mov [0x13c], eax
+
+* Array assigned globaly and accessed
+
+	------------------------------ c
+
+	uint8 ar[5];
+
+	void main()
+	{
+		ar[0] = 6;
+		ar[2] = 8;
+	}
+
+	------------------------------ asm (att)
+	mov $6, 0x134
+	movb $8, 0x136
