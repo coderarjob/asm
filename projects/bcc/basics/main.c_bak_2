@@ -1,0 +1,23 @@
+
+
+#asm
+	call _main
+	mov ah, 0x4c
+	int 0x21
+#endasm
+
+typedef unsigned int uint16;
+typedef unsigned char uint8;
+
+void main()
+{
+
+#asm
+	.data
+	_array: db 0,2,4,6,8
+	.text
+	mov [bp-5],#_array
+#endasm
+
+	uint8 *c;
+}
