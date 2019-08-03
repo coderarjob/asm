@@ -1,8 +1,8 @@
 ; MEGHA BOOT LOADER
-; Version: 0.03
+; Version: 0.31
 ;
-; Contains FAT12 driver, that reads a bitmap file from the disk to a buffer and
-; prints the buffer to the screen.
+; Contains FAT12 driver, that reads a loader file from the disk to a buffer and
+; and jumps to the loader code.
 ;
 ; Changes from version 0.01 (4th July 2019)
 ; -------------------------
@@ -11,11 +11,48 @@
 ;   load the whole file, so stating required size was useless).
 ; * Changed 'osegoffset' from EQU to RESW.
 ; * Resulted in reducing the file size from 503 bytes to 430 bytes in v0.02.
+;
+; Changes from version 0.02 (3rd August 2019)
+; -------------------------
+; * Objective of file is now to load a 'loader' file and jump to it.
+; * Loads a loader program into memory and jumps to it.
+;
+; * Sets up stack explicitly to be just before the bootloader.
+;       Top of the stack is now 0x6C0:FFF
+;       Stack is 4KiB in size
+;
+; * loadFlie and printString functions can now be accessed using INT 
+;       loadFile    --> INT 30
+;       printString --> INT 31
+;   These two functions can be accessed from any segment and can be used by the
+;   'loader' program to load rest of the OS and show some message on screen.
+;
+; * To save storage, error messages are now
+;   |-----------------------|---------------------|
+;   |       ERROR           |     MESSAGE         |
+;   |-----------------------|---------------------|
+;   |Floppy cannot be reset |       FL            |
+;   |-----------------------|---------------------|
+;   |Loader fie not found   |       LD            |
+;   |-----------------------|---------------------|
+; 
+; * INT 30 is now used in the bootloader as well.
+; * INT 31 is now used to display text in the bootloader.
+; * INT 30 (loadFile) now preserves DS segment.
+; * Bootloader sets just the DS register before jump to the loader. Previously
+;   it set ES, FS, GS as well.
+; * BootLoader file size is now 509 bytes.
+;
+; Changes from version 0.03 (3rd August 2019)
+; -------------------------
+; * loadFile now do not take the segment number (CX register was used for this)
+;   of the filename. It is now assumed to be same as DS of the callee.
+; * Bootloader file size is 503 bytes.
 
 	org 0x7C00
-	; ******************************************************
-	; BIOS PARAMETER BLOCK
-	; ******************************************************
+; ******************************************************
+; BIOS PARAMETER BLOCK
+; ******************************************************
 
 	jmp near boot_main
 
@@ -39,21 +76,20 @@
 	VolumeLabel		db "ARJOBOS    "; Volume Label: any 11 chars
 	FileSystem		db "FAT12   "	; File system type: don't change!
 
-	; ******************************************************
-	; MACRO BLOCK
-	; ******************************************************
+; ******************************************************
+; MACRO BLOCK
+; ******************************************************
 
 %macro printString 1
 	push si
 	mov si, %1
-	;call printstr
 	int 0x31
 	pop si
 %endmacro
 
-	; ******************************************************
-	; MAIN CODE BLOCK
-	; ******************************************************
+; ******************************************************
+; MAIN CODE BLOCK
+; ******************************************************
 boot_main:	
 	; Setup the Stack
 	; The Stack is 4k in size and starts at location 0x7BFF or 6C0:FFF
@@ -87,7 +123,6 @@ boot_main:
 
 	mov ax, 0x800
 	mov bx, 0x0
-	mov cx, ds
 	mov dx, bootfile
 
 	int 0x30
@@ -98,16 +133,13 @@ boot_main:
 	; Read was a success, we prepare the segment registers and jump.
 	mov ax, 0x800
 	mov ds, ax
-	mov es, ax
-	mov fs, ax
-	mov gs, ax
 	jmp 0x800:0x0
 	;--------------------- 
 ; ======================================================================
 ; ======================================================================
 
 failed_drive_error:
-	printString failedstr
+	printString drivefailedstr
 	jmp exit
 failed_file_not_found:
 	printString filenotfoundstr
@@ -117,10 +149,9 @@ exit:
 %include "loadFile.s"
 %include "printstr.s"
 
-failedstr:  	db	'0',0
-filenotfoundstr:db      '1',0
+drivefailedstr:  db	 'FL',0
+filenotfoundstr: db      'LD',0
 bootfile: db 'LOADER     '
-;bootfile: db 'PRINT      '
 ; ************************************** Used by loadFile
 bootfilename:	resb	11
 RootDirSectors:	dw 	14
@@ -128,16 +159,15 @@ filesector:	resw 	1
 fileremsize	resw 	1
 osegoffset	resw	1
 osegment	resw	1
-;osegment	equ 	0xA000
 ; **************************************
 
-    ; ******************************************************
-    ; END OF BOOT LOADER
-    ; ******************************************************
-    times 510 - ($-$$) db 0
-		dw 	0xAA55
+; ******************************************************
+; END OF BOOT LOADER
+; ******************************************************
+;    times 510 - ($-$$) db 0
+;		dw 	0xAA55
 
-    ; ******************************************************
-    ; FILE IO BUFFER
-    ; ******************************************************
+; ******************************************************
+; FILE IO BUFFER
+; ******************************************************
 buffer:

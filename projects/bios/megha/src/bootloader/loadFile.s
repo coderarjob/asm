@@ -23,38 +23,28 @@
 ; LOADS WHOLE FILE FROM THE FLOPPY DISK TO MEMORY.
 ; Input: AX - Memory segment of the destination address
 ;	 BX - Memory offset in the segment
-;	 CX - Segment of the memory location with filename
 ;	 DX - Memory offset with the filename
 ; Output: AX - 1 file read successfully, 0 file could not be read
 
 loadFile:
+	push ds
 	pusha
-	;push ds
-	;push es
-	;push gs
-	;push fs
+	
+	xor cx, cx
+	; Copy filename from the location pointed to by DS:DX to the local
+	; memory segment and storage.
+	mov si, dx			; DS:SI
+	mov es, cx
+	mov di, bootfilename		; ES:DI
+	mov cx, 11
+	rep movsb
 
-	;push ax
-	;xor ax, ax
-	;mov ds, ax
-	;mov es, ax
-	;mov fs, ax
-	;mov gs, ax
-	;pop ax
+	; Change the DS register to 0. Needed to address local memory.
+	mov ds, cx
 
 	; save the output memory location to local memory
 	mov [osegment],ax
 	mov [osegoffset],bx
-
-	; copy filename from the location pointed by CX:DX
-	; to the local segment.
-	push ds
-	mov ds, cx
-	mov si, dx
-	mov di, bootfilename
-	mov cx, 11
-	rep movsb
-	pop ds
 
 	mov cx, [RootDirSectors]
 	mov ax, 19		; root dir starts at sector 19
@@ -177,12 +167,9 @@ loadFile:
 	; This is becuause, it will hold the result from the previous read.
 	mov [.ret], word 0
 .end:
-	;pop fs
-	;pop gs
-	;pop es
-	;pop ds
 	popa
-	mov ax, [.ret]
+	mov ax, [.ret]		; AX must be set before we restore DS
+	pop ds
 	iret
 
 .ret dw 0

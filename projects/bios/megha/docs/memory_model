@@ -1,0 +1,22 @@
+MEMORY MODEL OF MEGHA OPERATING SYSTEM
+------------------------------------------------------------
+
+The OS Kernel would itself be loaded in a single segment, but can call drivers 
+loaded in different segment. The system calls of the OS can only be accessed by 
+the INT instruction.
+
+All of the segment registers is preserved during system calls.
+If any system call procedure needs to access local table/data it can change DS
+register, but must be restored back.
+
+			Segment Number		Offset		Size
+			-------------------------------------------
+Stack		0x6C0				FFF			4096
+			-------------------------------------------
+Bootloader	0x000				0x7C00		512
+			-------------------------------------------
+Buffer for
+Bootloader	0x000				0x7E00		512
+			-------------------------------------------
+Loader		0x800				0x0000		64 KiB
+			-------------------------------------------
