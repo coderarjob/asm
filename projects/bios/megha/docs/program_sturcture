@@ -1,0 +1,110 @@
+Theis document will answer how and who will load a process into memory and also
+discusses the structure of various drivers in the system.
+
+The OS will have to assume the LONG mode of operation, because SMALL mode is a
+special case of the LONG mode. The drivers and the kernel itself will all work
+with long mode - So writing parts in C would be difficult.
+
+Below is an overview of the structure of the executable and driver files.
+Each of the executable and driver files have an entry point. The arguments to
+this program will be in stack.
+
+Loading of drivers:
+	; call to the _init method of a loaded driver program.
+	; It is assumed that the data segemnt switching is already done.
+
+	lea ax, [offset + _START_OFFSET]	; For DOS offset = 0x100, and if
+										; the _init starts at location 0x3,
+										; then _START_OFFSET = 0x3
+	mov [Proc_Addr], ax
+	mov [Proc_Addr + 2], seg
+
+	push argument_n
+	push argument_n-1
+	push n
+	call far [Proc_Addr]
+
+	Proc_Addr: resw 1 ; for offset (this will be a constant, read below)
+			   resw 1 ; for segment
+
+	; The 'offset' part of the Proc_Addr is a constant - every program will be 
+	; loaded at a fixed offset and the _init function would also be at a fixed 
+	; address from the start of the program.
+
+	; As SS <> DS not all C compilers can be used to build drivers.
+	; But if it be done, the decleration for _main would look like this.
+	void _init(int16 argument_count, int16 arguments[]);
+
+	However C do not have any syntax to do a far call, we cannot write an
+	quivallent C code without using the inline assembly.
+
+	void (*init_ptr)(int8,int16*);
+	init_ptr = (void (*)(int8, int16*))(driver_address + _START_OFFSET);
+	init_ptr(1,offset);
+
+	; In the above code, 'driver_address' is the offset at which driver is
+	; loaded, and _START_OFFSET is the fixed offset at which the entry point 
+	; _init is supposed to be in the program.
+
+Why is the meaning of the values passed to the program?
+	The arguments are pushed on to the stack with the last element pushed
+	should be the count of the arguments that were pushed. What meaning the
+	arguments hold will depend on the program. Normally drivers will not need
+	any arguments to be passed to it. But it is there.
+	As you can immagine this model will also work with application programs to
+	pass startup parametes in the stack.
+
+General pseudocode for loading programs and executing the _init function:
+
+	char *programs_to_load[] =
+	{"debug.drv","mos","kdb.drv","con.drv","kdb.drv", NULL};
+
+	int seg = 0x800;
+	int OFFSET = 0x100;
+	int _INIT_OFFSET = 103;
+	for(int i = 0; 
+				(filename = programs_to_load[i]) != NULL; i++)
+	{	
+		size = laodfile(seg,OFFSET);
+#asm
+		.text
+
+		; backup DS in Stack
+		push ds
+		mov ds, _seg;
+
+		; call the _init function
+		push 0		; argument count
+
+		mov [_init_addr], __INIT_OFFSET;
+		mov [_init_addr+2], _seg;
+		call far [_init_addr]
+
+		; restore DS
+		sub sp, 2
+		pop ds
+
+		.data
+		_init_addr: resw 1
+					resw 1
+		.text
+#endasm
+	
+		; calculate new segment address
+		seg = ((size + OFFSET) >> 4) + 1 + seg;
+	}
+
+	
+Just a thought:
+	Instead of an _init function at a fixed offset, we can start the program
+	from the top (at whatever offset the process is loaded at). And if the
+	program is a driver, an initializing routine is what will be first. If the
+	driver needs nothing to initialize, the first instruction will be a RETF.
+	(Far return is needed becuase the process will be loaded by a system call
+	that resides in the segment kernel is in.)
+
+	This would help in having a consistent layout for application programs as
+	well as drivers.
+	
+	The only difference is that drivers will always run in LARGE mode (DS <>
+	SS), while application can optionally run in SMALL mode (DS = SS).
