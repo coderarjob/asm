@@ -21,10 +21,12 @@
 ; ------------------------------------------- MACRO BLOCK ENDS
 
 ; LOADS WHOLE FILE FROM THE FLOPPY DISK TO MEMORY.
+; NOTE: CANNOT READ FILES THAT ARE LARGER THAN 64KB.
 ; Input: AX - Memory segment of the destination address
 ;	 BX - Memory offset in the segment
 ;	 DX - Memory offset with the filename
-; Output: AX - 1 file read successfully, 0 file could not be read
+; Output: AX - 0 file could not be read.
+;	       Or returns the file size if read was successful.
 
 loadFile:
 	push ds
@@ -46,7 +48,7 @@ loadFile:
 	mov [osegment],ax
 	mov [osegoffset],bx
 
-	mov cx, [RootDirSectors]
+	mov cx, RootDirSectors
 	mov ax, 19		; root dir starts at sector 19
 .readsector:
 	readSector ax,buffer
@@ -62,8 +64,8 @@ loadFile:
 	
 	; not a match, we go to next entry
 	;add bx, 64
-	add bx, 32
-	cmp bx, 512
+	add bx, 32		; Goto the next entry.
+	cmp bx, 512		; TODO: Is this really 512??
 	jnz .searchRootEntry
 
 .filenotfound:
@@ -78,12 +80,21 @@ loadFile:
 	mov ax, word [buffer + bx + 0x1A]
 	mov [filesector], ax
 
-	; read file size at 32 bit number
+	; read file size a 32 bit number 
+	; Endianess is preserved - Bytes are written to 'fileremsize' in the
+	; same order as they appear in the disk.
 	mov ax, word [buffer + bx + 0x1C]	; first 16 bits of file size
 	mov [fileremsize], ax
+	
+	; Saves the file size. This value will be returned if success.
+	mov [.ret], ax				
 
-	mov ax, word [buffer + bx + 0x1E]	; second 16 bits of file size
-	mov [fileremsize+2], ax
+	; NOTE: We are only reading 16 bits of size, as we cannot load a file 
+	; that is more than 64k in size anyways. This saves a little bit of 
+	; memory.
+
+	; mov ax, word [buffer + bx + 0x1E]	; second 16 bits of file size
+	; mov [fileremsize+2], ax
 .repeat:
 	; setup the counter register
 	cmp [fileremsize], word 0
@@ -126,6 +137,9 @@ loadFile:
 	shr ax, 1
 	add ax, bx			; [filesector] * 3/2
 
+	; AX now has the byte to be read from the FAT. For filesector 3, the
+	; byte to be read from FAT is 3 * 3/2 = 4.5.
+
 	; we normalize the byte location in ax.
 	; example: byte 513 in FAT table, is byte 1 of sector 2 of disk
 	xor dx, dx
@@ -159,7 +173,8 @@ loadFile:
 	jnz .repeat
 .readFileEnd:
 	; file was found and read is complete.
-	mov [.ret], word 1
+	; Return value is the file size; this was already written when reading
+	; the directory entry.
 	jmp .end
 .failed:
 	; file was not found
@@ -173,4 +188,14 @@ loadFile:
 	iret
 
 .ret dw 0
+bootfilename:	resb	11
+RootDirSectors:	equ 	14
+filesector:	resw 	1
+fileremsize	resw 	1 ; even though the file size in FAT12 is 32 bits, we
+			  ; cannot load a file that is more than 64K 
+			  ; (fits in one segment) with our current logic in 
+			  ; this function, so we are allocating only 16 bits.
+osegoffset	resw	1
+osegment	resw	1
+
 %include "../common/readsector.s"
