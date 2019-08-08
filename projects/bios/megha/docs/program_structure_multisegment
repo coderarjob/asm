@@ -51,7 +51,7 @@ Why is the meaning of the values passed to the program?
 	should be the count of the arguments that were pushed. What meaning the
 	arguments hold will depend on the program. Normally drivers will not need
 	any arguments to be passed to it. But it is there.
-	As you can immagine this model will also work with application programs to
+	As you can imagine this model will also work with application programs to
 	pass startup parametes in the stack.
 
 General pseudocode for loading programs and executing the _init function:
@@ -93,7 +93,6 @@ General pseudocode for loading programs and executing the _init function:
 		; calculate new segment address
 		seg = ((size + OFFSET) >> 4) + 1 + seg;
 	}
-
 	
 Just a thought:
 	Instead of an _init function at a fixed offset, we can start the program
