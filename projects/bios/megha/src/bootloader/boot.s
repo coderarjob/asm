@@ -48,6 +48,7 @@
 ; * loadFile now do not take the segment number (CX register was used for this)
 ;   of the filename. It is now assumed to be same as DS of the callee.
 ; * Bootloader file size is 503 bytes.
+; * Data section that is used by loadFile function was moved to loadFile.s
 
 	org 0x7C00
 ; ******************************************************
@@ -122,7 +123,7 @@ boot_main:
 	; Read the directory and search for file
 
 	mov ax, 0x800
-	mov bx, 0x0
+	mov bx, 0x100
 	mov dx, bootfile
 
 	int 0x30
@@ -152,20 +153,12 @@ exit:
 drivefailedstr:  db	 'FL',0
 filenotfoundstr: db      'LD',0
 bootfile: db 'LOADER     '
-; ************************************** Used by loadFile
-bootfilename:	resb	11
-RootDirSectors:	dw 	14
-filesector:	resw 	1
-fileremsize	resw 	1
-osegoffset	resw	1
-osegment	resw	1
-; **************************************
 
 ; ******************************************************
 ; END OF BOOT LOADER
 ; ******************************************************
-;    times 510 - ($-$$) db 0
-;		dw 	0xAA55
+    times 510 - ($-$$) db 0
+		dw 	0xAA55
 
 ; ******************************************************
 ; FILE IO BUFFER

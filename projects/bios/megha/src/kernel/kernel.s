@@ -4,6 +4,10 @@
 
 ; Our kernel will load at an offset 0, so no ORG is necessery
 
+	org 0x64
+_init:
+	retf
+
 	; install the putchar into the IVT
 	mov ax, 0
 	mov es, ax

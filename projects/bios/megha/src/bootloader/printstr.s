@@ -5,9 +5,9 @@ printstr:
 	push ax
 
 	; switch to 0x13 mode
-	mov ah, 0
-	mov al, 0x3	; text mode
-	int 0x10
+	;mov ah, 0
+	;mov al, 0x3	; text mode
+	;int 0x10
 
 .repeat:
 	lodsb

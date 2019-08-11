@@ -15,6 +15,10 @@ pushd src/bootloader
 	nasm -f bin loader.s -g -o ../../build/loader -l ../../lists/loader.lst|| exit
 popd
 
+pushd src/drivers
+	echo "=== Compilling panic.drv ==="
+	nasm -f bin panic/panic.s -g -o ../../build/drivers/panic.drv -l ../../lists/panic.lst||exit
+popd
 
 pushd src/kernel
 nasm -f bin kernel.s -g -o ../../build/kernel || exit
@@ -34,6 +38,7 @@ echo "=== Copy ossplash.bin ==="
 runas cp bitmaps/bins/megha_boot_image_v2.data temp/ossplash.bin || exit
 runas cp build/loader temp/loader || exit
 runas cp build/kernel temp/kernel || exit
+runas cp build/drivers/panic.drv temp/panic.drv || exit
 
 # Unmount the image
 echo "=== Copy of files done. Unmounting image ==="
