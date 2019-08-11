@@ -10,6 +10,9 @@ Note:
 * LONG mode means CS = DS <> SS. 
 * SMALL mode means CS = DS = SS. DS must always be same as CS.
 
+System language arguments:
+	Arguments of a system call is passed via registers.
+
 Standard system call would look something like this:
 
     ------------------------------------------
