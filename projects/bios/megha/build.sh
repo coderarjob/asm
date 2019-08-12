@@ -9,20 +9,21 @@
 # Compile the bootloader
 pushd src/bootloader
 	echo "=== Compilling bootloader ==="
-	nasm -f bin boot.s -g -o ../../build/boot.bin -l ../../lists/boot.lst|| exit
+	nasm -f bin boot.s -g -o ../../build/boot -l ../../lists/boot.lst|| exit
 
 	echo "=== Compilling loader ==="
 	nasm -f bin loader.s -g -o ../../build/loader -l ../../lists/loader.lst|| exit
 popd
 
-pushd src/drivers
-	echo "=== Compilling panic.drv ==="
-	nasm -f bin panic/panic.s -g -o ../../build/drivers/panic.drv -l ../../lists/panic.lst||exit
+pushd src/modules
+	echo "=== Compilling debug.mod ==="
+	nasm -f bin debug/debug.s -g -o ../../build/modules/debug.mod -l ../../lists/debug.lst||exit
+	echo "=== Compilling kernel.mod ==="
+	nasm -f bin kernel/kernel.s -g -o ../../build/modules/kernel.mod -l ../../lists/kernel.lst || exit
+	echo "=== Compilling despchr.mod ==="
+	nasm -f bin despatcher/despatcher.s -g -o ../../build/modules/despchr.mod -l ../../lists/despatcher.lst || exit
 popd
 
-pushd src/kernel
-nasm -f bin kernel.s -g -o ../../build/kernel || exit
-popd
 
 # Build the floppy image
 echo "=== Creating disk image ==="
@@ -37,8 +38,9 @@ runas mount disk_images/boot.flp temp || exit
 echo "=== Copy ossplash.bin ==="
 runas cp bitmaps/bins/megha_boot_image_v2.data temp/ossplash.bin || exit
 runas cp build/loader temp/loader || exit
-runas cp build/kernel temp/kernel || exit
-runas cp build/drivers/panic.drv temp/panic.drv || exit
+runas cp build/modules/kernel.mod temp/kernel.mod || exit
+runas cp build/modules/debug.mod temp/debug.mod || exit
+runas cp build/modules/despchr.mod temp/despchr.mod || exit
 
 # Unmount the image
 echo "=== Copy of files done. Unmounting image ==="
@@ -46,6 +48,6 @@ runas umount temp || exit
 
 # Wrtie the bootloader
 echo "=== Writing bootloader to floppy image ==="
-dd conv=notrunc if=build/boot.bin of=disk_images/boot.flp || exit
+dd conv=notrunc if=build/boot of=disk_images/boot.flp || exit
 
 echo "Done"

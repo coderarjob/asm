@@ -1,10 +1,11 @@
 ; MEGHA BOOT LOADER
-; Version: 0.31
+; Version: 0.32 (110819)
 ;
 ; Contains FAT12 driver, that reads a loader file from the disk to a buffer and
 ; and jumps to the loader code.
 ;
-; Changes from version 0.01 (4th July 2019)
+; -------------------------
+; Changes in version 0.02 (4th July 2019)
 ; -------------------------
 ; * Removed the 'Welcome' message. Directly boots into the splashscreen now.
 ; * Removed 'filereqsize', 'filesize' (these were not really needed, we want to
@@ -12,7 +13,8 @@
 ; * Changed 'osegoffset' from EQU to RESW.
 ; * Resulted in reducing the file size from 503 bytes to 430 bytes in v0.02.
 ;
-; Changes from version 0.02 (3rd August 2019)
+; -------------------------
+; Changes in version 0.03 (3rd August 2019)
 ; -------------------------
 ; * Objective of file is now to load a 'loader' file and jump to it.
 ; * Loads a loader program into memory and jumps to it.
@@ -43,13 +45,21 @@
 ;   it set ES, FS, GS as well.
 ; * BootLoader file size is now 509 bytes.
 ;
-; Changes from version 0.03 (3rd August 2019)
+; -------------------------
+; Changes in version 0.31 (3rd August 2019)
 ; -------------------------
 ; * loadFile now do not take the segment number (CX register was used for this)
 ;   of the filename. It is now assumed to be same as DS of the callee.
 ; * Bootloader file size is 503 bytes.
 ; * Data section that is used by loadFile function was moved to loadFile.s
-
+;
+; -------------------------
+; Changes in version 0.32 (11th August 2019)
+; -------------------------
+; * loadFile now returns the loaded file size in AX
+;   If it failed to load the file, AX is 0
+; * The 2nd Stage loader is loaded at location 0x800:0x100
+;
 	org 0x7C00
 ; ******************************************************
 ; BIOS PARAMETER BLOCK
@@ -134,7 +144,7 @@ boot_main:
 	; Read was a success, we prepare the segment registers and jump.
 	mov ax, 0x800
 	mov ds, ax
-	jmp 0x800:0x0
+	jmp 0x800:0x100
 	;--------------------- 
 ; ======================================================================
 ; ======================================================================

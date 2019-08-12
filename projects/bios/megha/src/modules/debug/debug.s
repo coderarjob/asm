@@ -1,7 +1,7 @@
-; Megha Operating System Panic/Debug driver.
+; Megha Operating System Panic/Debug module.
 ; The functions in this file is called by the kernel, drivers or application
 ; programs.
-; Build version: 0.1 (10819)
+; Build version: 0.1 (100819)
 ;
 ; Initial release: 10th Aug 2019
 ; 
@@ -11,56 +11,46 @@
 	ORG 0x64
 
 ; The first function in a driver program is a _init function. This function is
-; responsible to setup the driver - install into IVT etc. 
+; responsible for setting up the driver - install routines into IVT etc. 
 _init:
-	; install dispatcher into the IVT
-	push ax
-	push es
-	    xor ax, ax 
-	    mov es, ax
-	    mov [es:0x41 *4], word dispatcher
-	    mov [es:0x41 *4 + 2], cs
-	pop es
-	pop ax
+	pusha
 
+	    ; Add various function to the despatcher
+
+	    ;printhex
+	    mov bx, 0xf0	; call AddRoutine function
+	    mov al, DB_PRINTHEX
+	    mov cx, cs
+	    mov dx, printhex
+	    int 0x41
+
+	    ;printstr
+	    mov bx, 0xf0	; call AddRoutine function
+	    mov al, DB_PRINTSTR
+	    mov cx, cs
+	    mov dx, printstr
+	    int 0x41
+
+	    ;clear
+	    mov bx, 0xf0	; call AddRoutine function
+	    mov al, DB_CLEARSCR
+	    mov cx, cs
+	    mov dx, clear
+	    int 0x41
+	
+	popa
+
+	; RETF is a must to be able to return to the loader.
 	retf
 
-; Dispatcher is the function that will be installed into the IVT. 
-; The function will be identified by a number in BX register.
-; Arguments are provided in AX, CX, DX, SI, DI. Return in BX
-
-; Part of the function is to 
-; 1. Save the caller DS into another register and set DS to the value in CS
-; 2. Call the appropriate function and
-; 3. Restore the DS to the same value as it was when dispatcher was called.
-dispatcher:
-	    pusha		; Pushes AX, BX, CX, DX, SP, BP, SI, DI
-	    push ds
-	    push es
-		push bx
-
-		    ; Save Caller DS into ES
-		    mov bx, ds
-		    mov es, bx
-
-		    ; DS = CS
-		    mov bx, cs
-		    mov ds, bx
-
-		pop bx	; restore bx
-
-	    ; Call the appropriate function based on value in BX
-	    ;
-	    ; Note that we cannot use call [calltable + bx *2] in real mode.
-	    ; Effective address do not have a scale in real mode, so we
-	    ; multiply by the 'scale' manually in the instruction below.
-	    shl bx, 1			; multiply BX by 2
-	    call [calltable + bx]	; call the appropriate routine.
-
-	    pop es
-	    pop ds
-	    popa
-	iret
+; Prints the hex representation of bytes in memory location
+; Input: AX:DX - Location of the memory location
+;        CX    - Number of bytes to show
+; Output: none
+hexdump:
+	mov bx, cx
+	ret
+.hexdump_template: db "xxxx:xxxx    01 02 03 04 05 06 07 08"
 
 ; Copies one character with attribute in the VBA memory.
 ; This function also maintains the current offset in the VGA memory
@@ -111,7 +101,8 @@ clear:
 	    pop di
 	    pop ax
 	    pop cx
-	ret
+	retf
+
 ; Copies a zascii stirng of bytes to VGA memory.
 ; Input: Address to print is in ES:AX
 ; Output: none
@@ -131,9 +122,13 @@ printstr:
 .end:
 	pop bx
 	pop si
-	ret		
-; Prints out hexadecimal representation of a 16 bit number.
-; Input: AX
+	retf		
+; Prints out hexadecimal representation of a 16/8 bit number.
+; Input: AX -> Number
+;        CX -> Number of bits to show in the hex display.
+;              16 - to see 16 bit hex
+;              8  - to see 8 bit hex (will show only AL)
+;	       Note: 0 < CX < 16 and CX is divisible by 4
 ; Output: None
 ;
 ; We need to save ES registers, as we it contains the DS of the caller.
@@ -144,7 +139,19 @@ printhex:
 	    push bx
 	    push ax
 
-		mov cx, 4		; we are doing 16 bits, so 4 hex chars
+		; Number of times the below loop need to loop
+		; Number = CX/4
+		mov bx, cx
+		shr bx, 2
+	
+		; We Shift the number so many times so that the required bits
+		; come to the extreme left.
+		sub cx, 16
+		neg cx
+		shl ax, cl
+
+		; Load the number of loop itteration into CX
+		mov cx, bx		; we are doing 16 bits, so 4 hex chars
 .rep:
 		mov bx, ax		; just save the input
 		shr bx, 12		; left most nibble to the right most
@@ -159,9 +166,11 @@ printhex:
 	    pop bx
 	    pop cx
 	    pop es
-	ret
+	retf
 .hexchars: db "0123456789ABCDEF"
 
 section .data
-calltable: dw	printhex, printstr, clear
 vga_offset: dw  0
+
+; ======================== INCLUDE FILES ===================
+%include "../include/mos.inc"
