@@ -1,39 +1,26 @@
-; This is a kernel Proof of concept.
-; The aim is to be able to make a IVT (interrupt vector table) entry of one of
-; our system call and be able to make a call to it.
 
-; Our kernel will load at an offset 0, so no ORG is necessery
+; Megha Operating System (MOS) Kernel 
+; Version: 0.1 (180819)
+;
+;--------------------------------------------------------------------------
+; The responsibilitiess of kernel includes:
+;--------------------------------------------------------------------------
+;
+; * Process/Resident Program management: Start processes, kill them, keep 
+;                    track of their health etc.
+; * Provide system calls: File system, Timer, Process management.
+; * Dynamic Memory management: Allocation and deallocation of memory as needed
+;                              by external processes.
+; * Interrupt handlers: IRQ0 etc.
+; * Handling and despatch of messages
+;
+;--------------------------------------------------------------------------
+; MAIN BODY
+;--------------------------------------------------------------------------
+; In MOS, all the moduels and programs is loaded at offset 0x64. The memory
+; above this (0 to 0x63) is for future use.
 
-	org 0x64
+	ORG 0x64
 _init:
 	retf
 
-	; install the putchar into the IVT
-	mov ax, 0
-	mov es, ax
-	mov [es:0xC0],word putchar
-	mov [es:0xC2],word 0x800
-
-	; use the system call
-	mov ah,0x9
-	mov al,[welcomemsg]
-	int 0x30
-
-	jmp $
-
-; It will write a character in AX to the screen buffer
-putchar:
-	push es
-	push bx
-
-	mov bx,0xb800
-	mov es,bx
-	mov [es:0],al
-	mov [es:1],ah
-
-	pop bx
-	pop es
-	iret
-
-welcomemsg: db 'Welcome to Megha kernel',10,13
-	    db 'Version: 0.001',0

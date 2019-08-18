@@ -16,12 +16,15 @@ _init:
 	    mov [es:0x41 * 4 + 2], cs
 	    
 	    ; Register the addRoutine
+	    ; Note: I cannot just do call far es:addRoutine, this is why we are
+	    ; using .proc_addr as the pointer to the call location.
 	    mov [.proc_addr],word addRoutine
 	    mov [.proc_addr+2], cs
 	    mov al, DS_ADD_ROUTINE
 	    mov cx, cs
 	    mov dx, addRoutine
 	    call far [.proc_addr]
+
 	popa
 ; It is importaint to do a RETF in the end, to be able to return to the loader.
 	retf
@@ -85,21 +88,36 @@ despatcher:
 ; Input: AL  - Interrupt number (used to calculate offet in the Data Area)
 ;        CX  - Segment of the routine
 ;        DX  - Offset of the routine
-; Output: none
+; Output: None
 addRoutine:
 	push bx
 	push es
-	    mov bx, MDA_SEG
-	    mov es, bx
+    
+	; Compare the input interrupt number and report error if it is more
+	; than the maximum allowed.
+	cmp al, DS_MAX_ITEMS
+	jae .toomuch
+	
+	mov bx, MDA_SEG
+	mov es, bx
 
-	    xor bx, bx
-	    mov bl, al
+	xor bx, bx
+	mov bl, al
 
-	    ; 8 bytes is the size of ; desp_routine_list_item.
-	    shl bx,2		; multiply BX by 4
+	; 4 bytes is the size of desp_routine_list_item.
+	shl bx,2		; multiply BX by 4
 
-	    mov [es:(bx + da_desp_routine_list_item.offset_start)], dx
-	    mov [es:(bx + da_desp_routine_list_item.seg_start)], cx
+	mov [es:(bx + da_desp_routine_list_item.offset_start)], dx
+	mov [es:(bx + da_desp_routine_list_item.seg_start)], cx
+
+	; Output success
+	mov al, 0
+	jmp .end
+.toomuch:
+	; Output failure status
+	mov si, invalid_routine_number_msg
+	int 0x42
+.end:
 	pop es
 	pop bx
 	retf
@@ -108,3 +126,4 @@ addRoutine:
 %include "../include/mda.inc"
 %include "../include/mos.inc"
 
+invalid_routine_number_msg: db "addRoutine (despatcher). Routine number is invalid.",0

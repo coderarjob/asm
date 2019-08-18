@@ -142,12 +142,10 @@ boot_main:
 
 	; -------------------- JUMP TO LOADER
 	; Read was a success, we prepare the segment registers and jump.
-	mov ax, 0x800
+	mov ax, LOADER_SEG
 	mov ds, ax
-	jmp 0x800:0x100
+	jmp LOADER_SEG:LOADER_OFF
 	;--------------------- 
-; ======================================================================
-; ======================================================================
 
 failed_drive_error:
 	printString drivefailedstr
@@ -156,7 +154,10 @@ failed_file_not_found:
 	printString filenotfoundstr
 exit:	
 	jmp $
+; ======================================================================
+; ======================================================================
 
+%include "../include/mos.inc"
 %include "loadFile.s"
 %include "printstr.s"
 

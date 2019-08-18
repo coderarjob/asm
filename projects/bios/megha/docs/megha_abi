@@ -46,8 +46,11 @@ Then parameters will be pushed into the stack from the right. Thus, argument
 The return value will be in AX, if 16 bits; and AX:DX if 32 bits (AX have the
 low word, and DX the high word)
 
-The registers AX, CX and DX are caller saved, where as BX, SI, DI, ES are callee
-caved.
+All the registers, expect BX is callee saved.
+
+Do not know why c standard calling model do the following:
+	The registers AX, CX and DX are caller saved, where as BX, SI, DI, ES are 
+	callee caved.
 
 ----------------------------------------------------------------------------
 System call calling convention:

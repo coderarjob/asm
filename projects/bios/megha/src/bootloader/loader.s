@@ -1,8 +1,14 @@
 ; Megha OS Loader
 ; Loades different programs/modules into memory and calls the _init routine.
-; Version: 0.2 (110819)
+; Version: 0.21 (130819)
 ;
-; Initial version was 0.1
+; Initial version was 0.2
+;
+; -------------------------
+; Changes in Version 0.2
+; -------------------------
+; * The loader output welcome message now has a ascii art 
+;   (The letter capital M).
 ;
 ; -------------------------
 ; Changes in Version 0.2
@@ -162,31 +168,43 @@ exit:
 	jmp $
 
 ; ================ Included files =====================
+section .data
+
 %include "../include/mos.inc"
 %include "../include/mda.inc"
 
 ; ================ Data for loader =====================
-fat_files:   db 'DESPCHR MOD'
+fat_files:   db 'PANIC   MOD'
+	     db 'DESPCHR MOD'
 	     db 'DEBUG   MOD'
 	     db 'KERNEL  MOD'
-             db 'IO      DRV'
+             ;db 'IO      DRV'
              db 0
 
 _init_addr: dw 	 0x64
-            dw   0x840
+            dw   0x840 ;MODULE0_SEG
+
 ; ================ Text messages =======================
-friendly_filenames: db 10,13," despchr.mod",0
+friendly_filenames: db 10,13," panic.mod..",0
+		    db 10,13," despchr.mod",0
 		    db 10,13," debug.mod..",0
 		    db 10,13," kernel.mod.",0
 		    db 10,13," io.drv.....",0
 
-msg_file_loaded:    db "Done",0
+msg_file_loaded:    db "   Done",0
+msg_file_not_found: db "   Not found",0
 
-msg_file_not_found: db "Not found",0
+;msg_loader_welcome: db "Megha Operating System (MOS) ", MOS_VER,10,13
+		    ;db "MOS Loader ", LOADER_VER, 10,13,0
 
-msg_loader_welcome: db "Megha Operating System (MOS) ", MOS_VER,10,13
-		    db "MOS Loader ", LOADER_VER, 10,13,0
-
+msg_loader_welcome: db 10,13,10,13
+		    db ' ####      ####  ',10,13
+		    db ' ## ##    ## ##  ','Megha Operating System (MOS)',10,13
+		    db ' ##  ##  ##  ##  ','Version:',MOS_VER,10,13         
+		    db ' ##   ####   ##  ','MOS Loader ', LOADER_VER, 10,13
+		    db ' ##    ##    ##  ',10,13
+		    db ' ----------------------------------------------'
+		    db 10,13,' Loading modules..',10,13,0
 
 hello: db "Showing this message using a debug.mod routine. Result: 0x",0
 ; ================ ZERO PADDING =======================

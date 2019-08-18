@@ -18,21 +18,21 @@ _init:
 	    ; Add various function to the despatcher
 
 	    ;printhex
-	    mov bx, 0xf0	; call AddRoutine function
-	    mov al, DB_PRINTHEX
+	    mov bx, DS_ADD_ROUTINE	; call AddRoutine function
+	    mov al, 0xFF
 	    mov cx, cs
 	    mov dx, printhex
 	    int 0x41
 
 	    ;printstr
-	    mov bx, 0xf0	; call AddRoutine function
+	    mov bx, DS_ADD_ROUTINE	; call AddRoutine function
 	    mov al, DB_PRINTSTR
 	    mov cx, cs
 	    mov dx, printstr
 	    int 0x41
 
 	    ;clear
-	    mov bx, 0xf0	; call AddRoutine function
+	    mov bx, DS_ADD_ROUTINE	; call AddRoutine function
 	    mov al, DB_CLEARSCR
 	    mov cx, cs
 	    mov dx, clear
@@ -140,12 +140,13 @@ printhex:
 	    push ax
 
 		; Number of times the below loop need to loop
-		; Number = CX/4
+		; Number of itterations = CX/4
 		mov bx, cx
 		shr bx, 2
 	
 		; We Shift the number so many times so that the required bits
 		; come to the extreme left.
+		; Number of left shits = (16 - CX) or -(CX - 16)
 		sub cx, 16
 		neg cx
 		shl ax, cl

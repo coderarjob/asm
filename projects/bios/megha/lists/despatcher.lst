@@ -1,0 +1,201 @@
+     1                                  ; Megha Operating System (MOS) Software Interrupt 0x41 despatcher
+     2                                  ; Version: 0.1 (120819)
+     3                                  
+     4                                  ; Every module, driver or process in MOS starts at an offset of 0x64
+     5                                  	ORG 0x64
+     6                                  
+     7                                  ; The first routine is _init, a initialization routine that works that is used
+     8                                  ; to setup the data structures or to install a routine to IVT.
+     9                                  _init:
+    10 00000000 60                      	pusha	; Push AX, BX, CX, DX, SI, DI, SP, BP
+    11                                  
+    12                                  	    ; Install the despatcher routine into IVT
+    13 00000001 31DB                    	    xor bx, bx
+    14 00000003 8EC3                    	    mov es, bx
+    15 00000005 26C7060401[2C00]        	    mov [es:0x41 * 4], word  despatcher
+    16 0000000C 268C0E0601              	    mov [es:0x41 * 4 + 2], cs
+    17                                  	    
+    18                                  	    ; Register the addRoutine
+    19                                  	    ; Note: I cannot just do call far es:addRoutine, this is why we are
+    20                                  	    ; using .proc_addr as the pointer to the call location.
+    21 00000011 C706[2800][5900]        	    mov [.proc_addr],word addRoutine
+    22 00000017 8C0E[2A00]              	    mov [.proc_addr+2], cs
+    23 0000001B B030                    	    mov al, DS_ADD_ROUTINE
+    24 0000001D 8CC9                    	    mov cx, cs
+    25 0000001F BA[5900]                	    mov dx, addRoutine
+    26 00000022 FF1E[2800]              	    call far [.proc_addr]
+    27                                  
+    28 00000026 61                      	popa
+    29                                  ; It is importaint to do a RETF in the end, to be able to return to the loader.
+    30 00000027 CB                      	retf
+    31 00000028 <res 00000002>          .proc_addr: resw 1
+    31          ******************       warning: uninitialized space declared in .text section: zeroing [-w+other]
+    32 0000002A <res 00000002>          	    resw 1
+    32          ******************       warning: uninitialized space declared in .text section: zeroing [-w+other]
+    33                                  
+    34                                  
+    35                                  ; Dispatcher is the function that will be installed into the IVT. 
+    36                                  ; The function will be identified by a number in BX register.
+    37                                  ; Arguments are provided in AX, CX, DX, SI, DI. Return in BX
+    38                                  
+    39                                  ; Part of the function is to 
+    40                                  ; 1. Save the caller DS into another register and set DS to the value in CS
+    41                                  ; 2. Call the appropriate function and
+    42                                  ; 3. Restore the DS to the same value as it was when dispatcher was called.
+    43                                  ;
+    44                                  ; Input: BX   - Module number (must be < 256)
+    45                                  ; Output: BX  - Value comes from the routine that was called.
+    46                                  despatcher:
+    47 0000002C 50                      	push ax
+    48 0000002D 51                      	push cx
+    49 0000002E 52                      	push dx
+    50 0000002F 56                      	push si
+    51 00000030 57                      	push di
+    52 00000031 06                      	push es
+    53 00000032 1E                      	push ds
+    54                                  
+    55                                  	;TODO: Can we do without GS. IT WAS NOT PRESENT IN 8086
+    56 00000033 0FA8                    	push gs
+    57                                  	    
+    58 00000035 53                      	    push bx
+    59                                  	    ; Set GS to the MDA segment
+    60 00000036 BB0008                  		mov bx, MDA_SEG
+    61 00000039 8EEB                    		mov gs, bx
+    62                                  	    ; Set caller DS into ES
+    63 0000003B 8CDB                    		mov bx, ds
+    64 0000003D 8EC3                    		mov es, bx
+    65 0000003F 5B                      	    pop bx
+    66                                  
+    67                                  	    ; Set DS = CS of the routine
+    68 00000040 C1E302                  	    shl bx,2
+    69 00000043 50                      	    push ax
+    70 00000044 658B4717                		mov ax, [gs:(bx + da_desp_routine_list_item.seg_start)]
+    71 00000048 8ED8                    		mov ds, ax
+    72 0000004A 58                      	    pop ax
+    73                                  
+    74                                  	    ; Do a far call to the function based on the value in BX
+    75 0000004B 65FF5F15                	    call far [gs:(bx + da_desp_routine_list_item.offset_start)]
+    76                                  
+    77 0000004F 0FA9                    	pop gs
+    78 00000051 1F                      	pop ds
+    79 00000052 07                      	pop es
+    80 00000053 5F                      	pop di
+    81 00000054 5E                      	pop si
+    82 00000055 5A                      	pop dx
+    83 00000056 59                      	pop cx
+    84 00000057 58                      	pop ax
+    85 00000058 CF                      	iret
+    86                                  
+    87                                  ; This function installs a routine in the Despatcher Data Area.
+    88                                  ; Input: AL  - Interrupt number (used to calculate offet in the Data Area)
+    89                                  ;        CX  - Segment of the routine
+    90                                  ;        DX  - Offset of the routine
+    91                                  ; Output: None
+    92                                  addRoutine:
+    93 00000059 53                      	push bx
+    94 0000005A 06                      	push es
+    95                                      
+    96                                  	; Compare the input interrupt number and report error if it is more
+    97                                  	; than the maximum allowed.
+    98 0000005B 3C32                    	cmp al, DS_MAX_ITEMS
+    99 0000005D 7318                    	jae .toomuch
+   100                                  	
+   101 0000005F BB0008                  	mov bx, MDA_SEG
+   102 00000062 8EC3                    	mov es, bx
+   103                                  
+   104 00000064 31DB                    	xor bx, bx
+   105 00000066 88C3                    	mov bl, al
+   106                                  
+   107                                  	; 4 bytes is the size of desp_routine_list_item.
+   108 00000068 C1E302                  	shl bx,2		; multiply BX by 4
+   109                                  
+   110 0000006B 26895715                	mov [es:(bx + da_desp_routine_list_item.offset_start)], dx
+   111 0000006F 26894F17                	mov [es:(bx + da_desp_routine_list_item.seg_start)], cx
+   112                                  
+   113                                  	; Output success
+   114 00000073 B000                    	mov al, 0
+   115 00000075 EB05                    	jmp .end
+   116                                  .toomuch:
+   117                                  	; Output failure status
+   118 00000077 BE[7F00]                	mov si, invalid_routine_number_msg
+   119 0000007A CD42                    	int 0x42
+   120                                  .end:
+   121 0000007C 07                      	pop es
+   122 0000007D 5B                      	pop bx
+   123 0000007E CB                      	retf
+   124                                  
+   125                                  ; ==================== INCLUDE FILES ======================
+   126                                  %include "../include/mda.inc"
+     1                              <1> ; Megha Operating System (MOS) Data Area Maps
+     2                              <1> 
+     3                              <1> %ifndef __MDA_INC_
+     4                              <1> 	%define __MDA_INC_
+     5                              <1> 
+     6                              <1> 	; We store the addresses of loaded programs/modules in a list at
+     7                              <1> 	; location 0x800:0x1. 0x800:0 is used to store the number of item in 
+     8                              <1> 	; this list.
+     9                              <1> 
+    10                              <1> 	MAX_LOADER_MODULES:	EQU	10
+    11                              <1> 
+    12                              <1> 	struc da_loader_module_list 
+    13 00000000 <res 00000001>      <1> 	    .count     resb 1
+    14 00000001 <res 00000002>      <1> 	    .seg_start resw 1
+    15                              <1> 	endstruc
+    16                              <1> 
+    17                              <1> 	
+    18                              <1> 	; Despatcher stores routines in this list. It starts from 0x800:21.
+    19                              <1> 	; Each of the item has an offset and segment of the subroutine.
+    20                              <1> 	; A subroutine can be called by putting routine number in BX and
+    21                              <1> 	; calling INT 0x41
+    22                              <1> 	
+    23                              <1> 	DS_MAX_ITEMS:	EQU	50
+    24                              <1> 	
+    25                              <1> 	struc da_desp_routine_list_item, 21
+    26 00000015 <res 00000002>      <1> 		.offset_start resw 1
+    27 00000017 <res 00000002>      <1> 		.seg_start    resw 1
+    28                              <1> 	endstruc
+    29                              <1> 
+    30                              <1> %endif
+   127                                  %include "../include/mos.inc"
+     1                              <1> ; Main include file for kernel, driver and application developers.
+     2                              <1> ; It includes the function numbers for all interrupts in the MOS kernel.
+     3                              <1> ; It also includes some version information of various files in this release of
+     4                              <1> ; the MOS Operating System.
+     5                              <1> 
+     6                              <1> %ifndef __MOS_INC__
+     7                              <1> 	%define __MOS_INC__
+     8                              <1> 	
+     9                              <1> 	%define 	MOS_VER 		"0.1  (110819)"
+    10                              <1> 	%define 	BOOTLOADER_VER 	"0.32 (110819)"
+    11                              <1> 	%define 	LOADER_VER		"0.21  (130819)"
+    12                              <1> 	%define		DEBUG_DRV_VER	"0.1  (100819)"
+    13                              <1> 	%define		KERNEL_VER		"0.1 (180819)"
+    14                              <1> 
+    15                              <1> 	; Segment and fixed lengths of different parts of MOS
+    16                              <1> 	MDA_SEG:	EQU 		0x800
+    17                              <1> 	MDA_OFF:	EQU		0x0
+    18                              <1> 	MDA_LEN:	EQU		1024
+    19                              <1> 
+    20                              <1> 	LOADER_SEG	EQU		0x800
+    21                              <1> 	LOADER_OFF:	EQU		0x100
+    22                              <1> 	LOADER_LEN:	EQU		768
+    23                              <1> 
+    24                              <1> 	MODULE0_SEG:	EQU		0x840
+    25                              <1> 	MODULE0_OFF:	EQU		0x64
+    26                              <1> 	
+    27                              <1> 	; Routines in debug.mod (accessed via INT 0x41)
+    28                              <1> 	DB_PRINTHEX			EQU 0
+    29                              <1> 	DB_PRINTSTR			EQU 1
+    30                              <1> 	DB_CLEARSCR			EQU 2
+    31                              <1> 
+    32                              <1> 	; Routines in despatcher.mod
+    33                              <1> 	DS_ADD_ROUTINE			EQU 0x30
+    34                              <1> 
+    35                              <1> %endif
+   128                                  
+   129 0000007F 616464526F7574696E-     invalid_routine_number_msg: db "addRoutine (despatcher). Routine number is invalid.",0
+   129 00000088 652028646573706174-
+   129 00000091 63686572292E20526F-
+   129 0000009A 7574696E65206E756D-
+   129 000000A3 62657220697320696E-
+   129 000000AC 76616C69642E00     

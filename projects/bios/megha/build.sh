@@ -16,12 +16,14 @@ pushd src/bootloader
 popd
 
 pushd src/modules
+	echo "=== Compilling panic.mod ==="
+	nasm -f bin panic/panic.s -o ../../build/modules/panic.mod -l ../../lists/panic.lst||exit
 	echo "=== Compilling debug.mod ==="
-	nasm -f bin debug/debug.s -g -o ../../build/modules/debug.mod -l ../../lists/debug.lst||exit
+	nasm -f bin debug/debug.s  -o ../../build/modules/debug.mod -l ../../lists/debug.lst||exit
 	echo "=== Compilling kernel.mod ==="
-	nasm -f bin kernel/kernel.s -g -o ../../build/modules/kernel.mod -l ../../lists/kernel.lst || exit
+	nasm -f bin kernel/kernel.s  -o ../../build/modules/kernel.mod -l ../../lists/kernel.lst || exit
 	echo "=== Compilling despchr.mod ==="
-	nasm -f bin despatcher/despatcher.s -g -o ../../build/modules/despchr.mod -l ../../lists/despatcher.lst || exit
+	nasm -f bin despatcher/despatcher.s  -o ../../build/modules/despchr.mod -l ../../lists/despatcher.lst || exit
 popd
 
 
@@ -41,6 +43,7 @@ runas cp build/loader temp/loader || exit
 runas cp build/modules/kernel.mod temp/kernel.mod || exit
 runas cp build/modules/debug.mod temp/debug.mod || exit
 runas cp build/modules/despchr.mod temp/despchr.mod || exit
+runas cp build/modules/panic.mod temp/panic.mod || exit
 
 # Unmount the image
 echo "=== Copy of files done. Unmounting image ==="
