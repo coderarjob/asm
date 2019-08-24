@@ -16,10 +16,8 @@ pushd src/bootloader
 popd
 
 pushd src/modules
-	echo "=== Compilling panic.mod ==="
-	nasm -f bin panic/panic.s -o ../../build/modules/panic.mod -l ../../lists/panic.lst||exit
-	echo "=== Compilling debug.mod ==="
-	nasm -f bin debug/debug.s  -o ../../build/modules/debug.mod -l ../../lists/debug.lst||exit
+	echo "=== Compilling guru.mod ==="
+	nasm -f bin guru/guru.s  -o ../../build/modules/guru.mod -l ../../lists/guru.lst||exit
 	echo "=== Compilling kernel.mod ==="
 	nasm -f bin kernel/kernel.s  -o ../../build/modules/kernel.mod -l ../../lists/kernel.lst || exit
 	echo "=== Compilling despchr.mod ==="
@@ -41,9 +39,8 @@ echo "=== Copy ossplash.bin ==="
 runas cp bitmaps/bins/megha_boot_image_v2.data temp/ossplash.bin || exit
 runas cp build/loader temp/loader || exit
 runas cp build/modules/kernel.mod temp/kernel.mod || exit
-runas cp build/modules/debug.mod temp/debug.mod || exit
+runas cp build/modules/guru.mod temp/guru.mod || exit
 runas cp build/modules/despchr.mod temp/despchr.mod || exit
-runas cp build/modules/panic.mod temp/panic.mod || exit
 
 # Unmount the image
 echo "=== Copy of files done. Unmounting image ==="

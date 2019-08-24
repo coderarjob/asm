@@ -41,7 +41,7 @@
 	    lea di, [dump_body + 1]
 	    call printhex
 		
-            ; Print offset
+		; Print offset
 	    mov bx, si
 	    mov al, 16
 	    lea di, [dump_body+6]

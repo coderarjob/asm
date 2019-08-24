@@ -146,19 +146,30 @@ _init:
 .load_end:
 	
 	; clear the screen
-	mov bx, DB_CLEARSCR
+	mov bx, GURU_CLEARSCREEN
 	int 0x41
 
+
 	; Print hello world
-	mov bx, DB_PRINTSTR
+	mov bx, GURU_PRINTSTRING 
 	mov ax, hello
 	int 0x41
 
 	; print a number in hex format
-	mov bx, DB_PRINTHEX
+	mov bx, GURU_PRINTHEX
 	mov ax, 0xfa45
 	mov cx, 16
 	int 0x41
+
+	mov bx, GURU_HEXDUMP
+	xor ax, ax
+	mov dx, 0x0
+	mov cx, 0x40
+	int 0x41
+
+	mov bx, DS_ADD_ROUTINE
+	mov ax, 0xFF
+	int 0x40
 
 	jmp exit
 
@@ -174,9 +185,8 @@ section .data
 %include "../include/mda.inc"
 
 ; ================ Data for loader =====================
-fat_files:   db 'PANIC   MOD'
+fat_files:   db 'GURU    MOD'
 	     db 'DESPCHR MOD'
-	     db 'DEBUG   MOD'
 	     db 'KERNEL  MOD'
              ;db 'IO      DRV'
              db 0
@@ -185,14 +195,14 @@ _init_addr: dw 	 0x64
             dw   0x840 ;MODULE0_SEG
 
 ; ================ Text messages =======================
-friendly_filenames: db 10,13," panic.mod..",0
+friendly_filenames: db 10,13," guru.mod...",0
 		    db 10,13," despchr.mod",0
-		    db 10,13," debug.mod..",0
 		    db 10,13," kernel.mod.",0
 		    db 10,13," io.drv.....",0
 
 msg_file_loaded:    db "   Done",0
 msg_file_not_found: db "   Not found",0
+fatal_error:	    db "Cannot continue. Fatal error.",0
 
 ;msg_loader_welcome: db "Megha Operating System (MOS) ", MOS_VER,10,13
 		    ;db "MOS Loader ", LOADER_VER, 10,13,0
@@ -206,7 +216,8 @@ msg_loader_welcome: db 10,13,10,13
 		    db ' ----------------------------------------------'
 		    db 10,13,' Loading modules..',10,13,0
 
-hello: db "Showing this message using a debug.mod routine. Result: 0x",0
+hello: db "Showing this message using a debug.mod routine.",13,10
+       db "Result: 0x",0
 ; ================ ZERO PADDING =======================
 times 768 - ($ - $$) db 0
 

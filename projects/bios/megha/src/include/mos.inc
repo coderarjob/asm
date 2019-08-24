@@ -25,11 +25,12 @@
 	MODULE0_OFF:	EQU		0x64
 	
 	; Routines in debug.mod (accessed via INT 0x41)
-	DB_PRINTHEX			EQU 0
-	DB_PRINTSTR			EQU 1
-	DB_CLEARSCR			EQU 2
+	GURU_PRINTHEX			EQU 0
+	GURU_PRINTSTRING		EQU 1
+	GURU_CLEARSCREEN		EQU 2
+	GURU_HEXDUMP			EQU 3
 
-	; Routines in despatcher.mod
+	; Routines in despatcher.mod (accessed via INT 0x40)
 	DS_ADD_ROUTINE			EQU 0x30
 
 %endif

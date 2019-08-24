@@ -29,6 +29,9 @@ So we only use General Purpose Registers
 Segment registers
 	DS, SS, CS and ES.
 
+Note: Current version of MOS is not complient with this requirement, as GS is
+sometimes used in the code.
+
 ----------------------------------------------------------------------------
 Procedure/Function calling convention:
 ----------------------------------------------------------------------------
@@ -61,6 +64,9 @@ DX, SI, DI.
 Return values is in BX. The function number is provided in BX as well.
 The reason AX is not used, is simply to keep the dispatcher code simple due to
 the fact that only BX and BP can be used in Effective Addressing in 8086.
+
+AX, CX, DX, SI, DI, ES, DS, (GS if used) registers are callee saved (the system
+call/despatcher). BX is caller saved.
 
 Why not pass system call arguments via the stack? 
 

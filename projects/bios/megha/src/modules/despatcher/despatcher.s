@@ -1,6 +1,11 @@
-; Megha Operating System (MOS) Software Interrupt 0x41 despatcher
-; Version: 0.1 (120819)
-
+; Megha Operating System (MOS) Software Interrupt 0x40 despatcher
+; Version: 0.11 (240819)
+;
+; Changes in 0.11 (24th Aug 2019)
+; -------------------------------
+; * The global despatcher is now installed in the IVT at vector 40. Previously
+;   it was at 41st location in IVT.
+;
 ; Every module, driver or process in MOS starts at an offset of 0x64
 	ORG 0x64
 
@@ -12,8 +17,8 @@ _init:
 	    ; Install the despatcher routine into IVT
 	    xor bx, bx
 	    mov es, bx
-	    mov [es:0x41 * 4], word  despatcher
-	    mov [es:0x41 * 4 + 2], cs
+	    mov [es:0x40 * 4], word  despatcher
+	    mov [es:0x40 * 4 + 2], cs
 	    
 	    ; Register the addRoutine
 	    ; Note: I cannot just do call far es:addRoutine, this is why we are
@@ -40,6 +45,7 @@ _init:
 ; 1. Save the caller DS into another register and set DS to the value in CS
 ; 2. Call the appropriate function and
 ; 3. Restore the DS to the same value as it was when dispatcher was called.
+; 4. AX, CX, DX, ES, DS, GS, SI, DI are preserved. BX is not.
 ;
 ; Input: BX   - Module number (must be < 256)
 ; Output: BX  - Value comes from the routine that was called.
@@ -115,7 +121,7 @@ addRoutine:
 	jmp .end
 .toomuch:
 	; Output failure status
-	mov si, invalid_routine_number_msg
+	push invalid_routine_number_msg
 	int 0x42
 .end:
 	pop es
@@ -126,4 +132,6 @@ addRoutine:
 %include "../include/mda.inc"
 %include "../include/mos.inc"
 
-invalid_routine_number_msg: db "addRoutine (despatcher). Routine number is invalid.",0
+; ===================== DATA SECTION ======================
+invalid_routine_number_msg: db ";( addRoutine (despatcher). Routine number is "
+                            db "invalid.",0
