@@ -39,42 +39,47 @@ _init:
 
 ; Dispatcher is the function that will be installed into the IVT. 
 ; The function will be identified by a number in BX register.
-; Arguments are provided in AX, CX, DX, SI, DI. Return in BX
+; Arguments are provided in AX, CX, DX, SI, DI. 
+; Return in 
+; 	* BX - if upto 16 bits
+;	* AX:BX - if return value is > 16 bits but <= 32 bits
+;	* ES:BX - Far pointer
 
 ; Part of the function is to 
 ; 1. Save the caller DS into another register and set DS to the value in CS
 ; 2. Call the appropriate function and
 ; 3. Restore the DS to the same value as it was when dispatcher was called.
-; 4. AX, CX, DX, ES, DS, GS, SI, DI are preserved. BX is not.
+; 4. CX, DX, DS, GS, SI, DI are preserved. AX, BX, ES are not.
 ;
 ; Input: BX   - Module number (must be < 256)
 ; Output: BX  - Value comes from the routine that was called.
 despatcher:
-	push ax
 	push cx
 	push dx
 	push si
 	push di
-	push es
 	push ds
 
 	;TODO: Can we do without GS. IT WAS NOT PRESENT IN 8086
+	; Three segment addresses are needed here:
+	;	* DS - Segment of the routine being called.
+	;	* ES - Segment of the caller routine.
+	;	* GS - MOS data area segment.
 	push gs
-	    
 	    push bx
-	    ; Set GS to the MDA segment
-		mov bx, MDA_SEG
-		mov gs, bx
-	    ; Set caller DS into ES
-		mov bx, ds
-		mov es, bx
+			; Set GS to the MDA segment
+			mov bx, MDA_SEG
+			mov gs, bx
+			; Set caller DS into ES
+			mov bx, ds
+			mov es, bx
 	    pop bx
 
 	    ; Set DS = CS of the routine
 	    shl bx,2
 	    push ax
-		mov ax, [gs:(bx + da_desp_routine_list_item.seg_start)]
-		mov ds, ax
+			mov ax, [gs:(bx + da_desp_routine_list_item.seg_start)]
+			mov ds, ax
 	    pop ax
 
 	    ; Do a far call to the function based on the value in BX
@@ -82,12 +87,10 @@ despatcher:
 
 	pop gs
 	pop ds
-	pop es
 	pop di
 	pop si
 	pop dx
 	pop cx
-	pop ax
 	iret
 
 ; This function installs a routine in the Despatcher Data Area.

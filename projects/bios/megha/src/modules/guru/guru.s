@@ -383,7 +383,7 @@ copy_to_screen:
 	push bx
 
 	    mov si, ax
-	    mov bh, 0xF	; print in WHITE
+	    mov bh, DEFAULT_TEXT_COLOR	
 .rep:
 	    mov bl, [es:si]
 	    cmp bl, 0
