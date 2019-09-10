@@ -155,41 +155,7 @@
 
 ; Initial version: 2092019 (2nd September 2019)
 ;
-; =============== [ INCLUDE FLIES ] ===================
-%include "../../include/vfs.inc"
-%include "../../include/mos.inc"
-
 ; ============ [ CODE BLOCK ] =========
-; Every module in MOS starts at location 0x64. The below 100 bytes, from 0x0 to
-; 0x63 is for the future use.
-	ORG 0x100
-;
-; The first routine in any module is the _init routine. This can be as simple
-; as a retf statement or can actually be used for something importaint.
-_init:
-	mov ax, foofs
-	call register_fs
-
-	mov ax, foofs2
-	call register_fs
-	call register_fs
-
-	mov ah, 0x4c
-	int 0x21
-
-foofs:
-	istruc filesystem 
-		at filesystem.fsname, db 'foofs',0
-		at filesystem.diro, dd 0xaabbccdd
-		at filesystem.fo, dd 0x01020304
-	iend 
-
-foofs2:
-	istruc filesystem 
-		at filesystem.fsname, db 'Foofs2',0
-		at filesystem.diro, dd 0xaabbccdd
-		at filesystem.fo, dd 0x01020304
-	iend 
 
 ; Adds a new File system into the file systems list.
 ; Signature: 
@@ -476,7 +442,7 @@ _get_filesystem_from_name:
 mount:
 	push bp
 	mov bp, sp
-	
+
 struc mount_args
 	.file_ptr resw 1
 	.fsname_ptr resw 1
@@ -491,6 +457,10 @@ endstruc
 
 	; We SWAP DS and ES early on to make it easy for us to work with the data
 	; from the caller.
+	push di
+	push si
+	push cx
+	push dx
 	push ds
 	push es
 	
@@ -533,12 +503,13 @@ endstruc
 
 		; a. Copy filesystem pointer (ES:DX)
 		lea di, [es:mountlist + bx + mount_point.filesystem]
-		mov di, word dx
+		mov [di], word dx
 		mov [di+2],word es
 
 		; b. Copy source file pointer (DS:AX)
-		lea di, [es:mountlist + bx + mount_point.filesystem]
-		mov di, word [bp - mount_args.file_ptr]
+		lea di, [es:mountlist + bx + mount_point.source_file]
+		mov dx, word [bp - mount_args.file_ptr]
+		mov [di],dx 
 		mov [di+2],word ds
 
 		; c. Copy the drive name (DS:CX)
@@ -558,7 +529,11 @@ endstruc
 .end:
 	pop es
 	pop ds
-	leave	; pop bp and set sp = bp
+	pop dx
+	pop cx
+	pop si
+	pop di
+	leave	; sp = bp and pop bp 
 	ret
 
 ; Executing this routine will remove the mount point from the local mountlist
@@ -571,7 +546,12 @@ endstruc
 ;		BX    - 0 is successful, 
 ;			  - 1 if drive do not exist
 umount:
-	push es
+	push ax
+	push si
+	push di
+	push dx
+	push cx
+
 	push ds
 	push es
 		; We SWAP the DS and ES data segments
@@ -594,36 +574,50 @@ umount:
 	; 2. If found we shift every mount point array item one item to the
 	;    left to fill the gap from the removed mount point.
 	; -----------------------------------------------------------------
-	; Make ES = DS
-	push ds
-	pop es
+	; We preserve the ES register and later restore it.
+	push es
+		; Make ES = DS
+		push ds
+		pop es
 
-	; DX = End address of the mountlist array
-	; This is used to check, if we have passed the last item.
-	lea dx, [mountlist + mount_point_size * MAX_MOUNT_POINT_COUNT]
+		; DX = End address of the mountlist array
+		; This is used to check, if we have passed the last item.
+		push bx
+			mov bx, [mountlist_count]
+			imul bx, mount_point_size
+			lea dx, [mountlist + bx]
+		pop bx
 	
-	; array item to be removed. 
-	mov di, bx
+		; array item to be removed. 
+		mov di, bx
 
-	; next array item to the one getting removed.
-	mov si, [bx + mount_point_size]
+		; next array item to the one getting removed.
+		lea si, [bx + mount_point_size]
 .next:
-	cmp si, dx
-	jae	.last_item_to_remove
+		cmp si, dx
+		jae	.last_item_to_remove
 
 	; TODO: The below CX assignment and rep may not be required. Just one movsb
 	; is all that may be is required. But REP may be faster.
 	; We copy this much byte for each item.
-	mov cx, mount_point_size
-	rep movsb		; Copies one byte DS:SI to ES:DI and increments SI and DI
+		mov cx, mount_point_size
+		rep movsb	; Copies one byte DS:SI to ES:DI and increments SI and DI
 
-	jmp .next
+		jmp .next
 
 .last_item_to_remove:
-	sub [mountlist_count], word 1
-.not_found:
-		mov bx, 1
+		dec word [mountlist_count]
+		mov bx, 0
 	pop es
+	jmp .end
+.not_found:
+	mov bx, 1
+.end:
+	pop cx
+	pop dx
+	pop di
+	pop si
+	pop ax
 	ret
 
 ; Returns a far pointer to a 'mount_point' structure that matches the specified
@@ -674,7 +668,7 @@ _get_mount_point_from_drive:
 	mov bx, 0
 	jmp .end
 .found:
-	mov bx, di
+	lea bx, [es:mountlist + bx]
 .end:
 	pop si
 	pop di
@@ -718,7 +712,7 @@ get_mount_point_from_drive:
 		; back to point to the data segment of the caller (as it was when
 		; entering this routine from the despatcer)
 	pop ds
-	retf
+	ret
 ; =============== [ DATA SECTION ] ===================
 fslist: times MAX_REGISTERED_FILESYSTEM * filesystem_size db 0
 fslist_count: dw 0
