@@ -34,7 +34,7 @@
 	MODULE0_SEG:	EQU		0x840
 	MODULE0_OFF:	EQU		0x64
 	
-	; Routines in debug.mod (accessed via INT 0x41)
+	; Routines in guru.mod (accessed via INT 0x41)
 	GURU_PRINTHEX			EQU 0
 	GURU_PRINTSTRING		EQU 1
 	GURU_CLEARSCREEN		EQU 2
@@ -43,4 +43,10 @@
 	; Routines in despatcher.mod (accessed via INT 0x40)
 	DS_ADD_ROUTINE			EQU 0x30
 
+	; Routines in vfs.mod (accessed via INT 0x40)
+	VFS_OPEN				EQU 0xA
+	VFS_CLOSE				EQU 0xB
+	VFS_MOUNT				EQU 0xC
+	VFS_UMOUNT				EQU 0xD
+	VFS_REGISTER_FS			EQU 0xE
 %endif

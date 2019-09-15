@@ -149,7 +149,6 @@ _init:
 	mov bx, GURU_CLEARSCREEN
 	int 0x41
 
-
 	; Print hello world
 	mov bx, GURU_PRINTSTRING 
 	mov ax, hello
@@ -171,6 +170,14 @@ _init:
 	mov ax, 0xFF
 	int 0x40
 
+	;mov bx, GURU_CLEARSCREEN
+	;int 0x41
+
+	;mov ax, dummy_str
+	;mov bx, GURU_PRINTSTRING
+	;int 0x41
+	
+
 	jmp exit
 
 failed_file_not_found:
@@ -184,6 +191,7 @@ section .data
 %include "../include/mos.inc"
 %include "../include/mda.inc"
 
+dummy_str: db 'Arjob Mukherjee',0
 ; ================ Data for loader =====================
 fat_files:   db 'GURU    MOD'
 	     db 'DESPCHR MOD'

@@ -52,10 +52,10 @@ _init:
 ;		BX - Output from the called routine.
 ; Note:
 ;		All the registers except BX are saved and restored in the despatcher.
-;		ES register holds the data segment of the callee.
-;		DS is set to the CS
+;		DS is kept unchanged. Data segment of the caller. Local data is
+; 		accessed using the CS register.
+;		ES register is also unchanges, but can be chanded in any routine.
 _despatcher:
-	push es	
 	push ds
 	push ax
 	push cx
@@ -63,21 +63,10 @@ _despatcher:
 	push si
 	push di
 
-	push ax
-	    ; Save DS of the caller into the ES register
-	    mov ax, ds
-	    mov es, ax
-
-	    ; Based on our calling convention, we need to set DS to be equal to
-	    ; the CS of the routine that is being called.
-	    mov ax, cs
-	    mov ds, ax
-	pop ax
-
 	; Each of the entry in the call vector is 2 bytes.
 	; So the below statement multiplies bx by 2
 	shl bx, 1
-	call [callvector+bx]
+	call [cs:callvector+bx]
 
 	pop di
 	pop si
@@ -85,7 +74,6 @@ _despatcher:
 	pop cx
 	pop ax
 	pop ds
-	pop es
 
 	; IRET is requried as this routine will be called via INT
 	iret
@@ -93,6 +81,7 @@ _despatcher:
 ; Displays an error message on the screen and halts the processor
 ; Input:
 ;		STACK - A ASCIIZ string that needs to be displayed.
+;			  - DS is used for data segment
 ; Ouput:
 ;		None
 panic:
@@ -141,17 +130,6 @@ endstruc
 	mov [bp - reg.ss], ss
 	mov [bp - reg.sp], bp
 
-	; ES = DS (Caller)
-	; The convention is to put DS of the caller into ES. 
-	; For the below copy_to_screen to work properly, DS of the caller must
-	; be staved to ES.
-	mov bx, ds
-	mov es, bx
-
-	; DS = CS (Callee)
-	; Also the convention is to have DS = CS
-	mov bx, cs
-	mov ds, bx
 
 	; ======================= Clear the screen
 	call clear
@@ -162,11 +140,9 @@ endstruc
 	; At this point no data needs to be accessed from the Caller's side, so we
 	; repurpose the ES register so that it can be used to call the below
 	; routines.
-	; Setup the registers to be able to call the below methods properly.
-
-	; We set ES = DS (Callee)
-	mov ax, ds
-	mov es, ax
+	mov bx, cs
+	mov ds, bx
+	mov es, bx
 
 	; ================= Dump a few memory locations
 
@@ -193,11 +169,11 @@ endstruc
 	lea di, [.panic_registers+6]
 
 	mov ax, [bp + params.cs]
-	call __printhex
+	call _printhex
 	add di, 8
 
 	mov ax, [bp + params.ip]
-	call __printhex
+	call _printhex
 	add di, 8
 
 	; ====================== Write the rest of the registers
@@ -208,7 +184,7 @@ endstruc
 		push cx
 			mov cx, 16
 			mov ax, [ss:bx]
-			call __printhex
+			call _printhex
 			add di, 8
 
 			; We subtract the BX register, so that it can point to the next
@@ -237,10 +213,11 @@ endstruc
 hexdump:
 	pusha
 	push es
-		; Because there is no need to access caller data, we override ES to
-		; suite our needs.
-		mov bx, ds
+		; Because there is no need to access caller data, we override ES and DS
+		; to suite our needs.
+		mov bx, cs
 		mov es, bx
+		mov ds, bx
 
 		; This is again for our ease of use. As DX cannot be used in an
 		; effective address, but si can be used.
@@ -254,9 +231,6 @@ hexdump:
 
 		; Display the current dump line
 		pusha
-			; make ES = DS
-			mov bx,ds
-			mov es, bx
 			mov ax, .dump_line
 			call copy_to_screen
 		popa
@@ -276,13 +250,13 @@ hexdump:
 		push cx
 			; Print the Segment part
 			mov cx, 16
-			call __printhex
+			call _printhex
 			add di, 5
 		
 			push ax
 				; Print the offset
 				mov ax, si
-				call __printhex
+				call _printhex
 			pop ax
 			add di, 6
 		pop cx
@@ -298,7 +272,7 @@ hexdump:
 				mov ax,[es:si]
 			pop es
 			mov cx, 8
-			call __printhex
+			call _printhex
 			add di, 3
 			inc si
 		pop cx	
@@ -308,13 +282,10 @@ hexdump:
 		loop .again
 
 		; Display the last dump line.
-		pusha
-			; make ES = DS
-			mov bx,ds
-			mov es, bx
+		push ax
 			mov ax, .dump_line
 			call copy_to_screen
-		popa
+		pop ax
 	pop es
 	popa
 	ret
@@ -326,7 +297,7 @@ hexdump:
 ; This function also maintains the current offset in the VGA memory
 ; Input: BL - Character to print
 ;        BH - Attribute
-__putchar:
+_putchar:
 	    push es
 	    push bx
 	    push di
@@ -336,14 +307,14 @@ __putchar:
 		    mov bx, 0xb800
 		    mov es, bx
 		pop bx
-		mov di, [vga_offset]
+		mov di, [cs:vga_offset]
 
 		; print out the character and attribute byte
 		mov [es:di], bl
 		mov [es:di + 1], bh
 		
 		; We increment the offset variable
-		add [vga_offset], word 2
+		add [cs:vga_offset], word 2
 	    pop di
 	    pop bx
 	    pop es
@@ -358,15 +329,15 @@ clear:
 	    push di
 	    push es
 	    	mov ax, 0xb800
-		mov es, ax
-		mov di, 0
+			mov es, ax
+			mov di, 0
 
-		mov ax, 0x0
-		mov cx, 2000		; 80 words/row, 25 rows	
-		cld
-		rep stosw
+			mov ax, 0x0
+			mov cx, 2000		; 80 words/row, 25 rows	
+			cld
+			rep stosw
 
-		mov [vga_offset], word 0
+			mov [cs:vga_offset], word 0
             pop es
 	    pop di
 	    pop ax
@@ -376,7 +347,7 @@ clear:
 
 ; Copies a zascii stirng of bytes to VGA memory. It handles CR and LF
 ; characters properly.
-; Input: Address to print is in ES:AX
+; Input: Address to print is in DS:AX
 ; Output: none
 copy_to_screen:
 	push si
@@ -385,7 +356,7 @@ copy_to_screen:
 	    mov si, ax
 	    mov bh, DEFAULT_TEXT_COLOR	
 .rep:
-	    mov bl, [es:si]
+	    mov bl, [si]
 	    cmp bl, 0
 	    je .end
 
@@ -403,7 +374,7 @@ copy_to_screen:
 	    call _lf
 	    jmp .loop
 .normal:
-	    call __putchar
+	    call _putchar
 
 .loop:
 	    inc si
@@ -424,13 +395,13 @@ _cr:
 	pusha
 	    ; Byte number = current_offset % 160
 	    xor dx, dx
-	    mov ax, [vga_offset]
+	    mov ax, [cs:vga_offset]
 	    mov bx, 160
 	    div bx	; AX = DX:AX / BX and
 	    		; DX = DX:AX % BX
 
 	    ; Start of the current line = current_offset - byte number
-	    sub [vga_offset], DX
+	    sub [cs:vga_offset], DX
 	popa
 	ret
 
@@ -441,7 +412,7 @@ _cr:
 ; Output (in BX):
 ;	None
 _lf:
-	add [vga_offset],word 160
+	add [cs:vga_offset],word 160
 	ret
 
 ; Displays hexadecimal representation of a 16/8 bit number.
@@ -452,26 +423,25 @@ _lf:
 ;	       Note: 0 < CX < 16 and CX is divisible by 4
 ; Output: None
 printhex:
-	push es
+	push ds
 	push bx
 	push di
 	
 	    ; Put the hex value into the .buffer
-	    mov bx, cs
-	    mov es, bx
 	    mov di, .buffer
-
-	    call __printhex
+	    call _printhex
 		
 	    ; Display the string
 	    mov ax, .buffer
+		mov ax, cs
+		mov ds, ax
 	    call copy_to_screen
 
 	pop di
 	pop bx
-	pop es
+	pop ds
 	ret
-.buffer: resb 4		; Place for 4 characters from __printhex
+.buffer: resb 4		; Place for 4 characters from _printhex
 	 db 0		; and a end of string indicatior
 
 ; Prints out hexadecimal representation of a 16/8 bit number.
@@ -482,7 +452,7 @@ printhex:
 ;	       Note: 0 < CX < 16 and CX is divisible by 4
 ;	ES:DI -> Write location 
 ; Output: None
-__printhex:
+_printhex:
 		push di
 	    push cx
 	    push bx
@@ -505,7 +475,7 @@ __printhex:
 .rep:
 		mov bx, ax		; just save the input
 		shr bx, 12		; left most nibble to the right most
-		mov bl, [.hexchars + bx]; Get the hex character
+		mov bl, [cs:.hexchars + bx]; Get the hex character
 		mov [es:di], bl
 		inc di
 

@@ -35,8 +35,6 @@ _init:
 	retf
 .proc_addr: resw 1
 	    resw 1
-
-
 ; Dispatcher is the function that will be installed into the IVT. 
 ; The function will be identified by a number in BX register.
 ; Arguments are provided in AX, CX, DX, SI, DI. 
@@ -45,11 +43,13 @@ _init:
 ;	* AX:BX - if return value is > 16 bits but <= 32 bits
 ;	* ES:BX - Far pointer
 
-; Part of the function is to 
-; 1. Save the caller DS into another register and set DS to the value in CS
+; Points to note:
+; 1. The DS register points must point to the data segment of the caller. This
+;    is done to be able operate string instrucions more easily without the 
+;	 need to switch segments.
 ; 2. Call the appropriate function and
 ; 3. Restore the DS to the same value as it was when dispatcher was called.
-; 4. CX, DX, DS, GS, SI, DI are preserved. AX, BX, ES are not.
+; 4. CX, DX, DS, GS, SI, DI are preserved. AX, BX, ES are not always preserved.
 ;
 ; Input: BX   - Module number (must be < 256)
 ; Output: BX  - Value comes from the routine that was called.
@@ -62,25 +62,18 @@ despatcher:
 
 	;TODO: Can we do without GS. IT WAS NOT PRESENT IN 8086
 	; Three segment addresses are needed here:
-	;	* DS - Segment of the routine being called.
-	;	* ES - Segment of the caller routine.
+	;	* DS - Segment of the caller
+	;	* ES - Currently unchanged. But can be changed by the called routine.
 	;	* GS - MOS data area segment.
 	push gs
 	    push bx
 			; Set GS to the MDA segment
 			mov bx, MDA_SEG
 			mov gs, bx
-			; Set caller DS into ES
-			mov bx, ds
-			mov es, bx
 	    pop bx
 
-	    ; Set DS = CS of the routine
-	    shl bx,2
-	    push ax
-			mov ax, [gs:(bx + da_desp_routine_list_item.seg_start)]
-			mov ds, ax
-	    pop ax
+		; Each of the item in call table is 4 bytes
+		shl bx, 2
 
 	    ; Do a far call to the function based on the value in BX
 	    call far [gs:(bx + da_desp_routine_list_item.offset_start)]
@@ -124,8 +117,15 @@ addRoutine:
 	jmp .end
 .toomuch:
 	; Output failure status
-	push invalid_routine_number_msg
-	int 0x42
+	; As DS is set to the caller data segment, we switch it to the current code
+	; segment for PANIC call to display the local message.
+	push ds
+		push cs
+		pop ds
+
+		push invalid_routine_number_msg
+		int 0x42
+	pop ds
 .end:
 	pop es
 	pop bx
