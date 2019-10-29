@@ -1,0 +1,18 @@
+dev_open	floppy_driver.c	/^struct file *dev_open(struct file *mounted_f, char *filename)$/
+dev_read	floppy_driver.c	/^int dev_read(struct file *current_f, char *buffer, int size)$/
+devfs_init	devfs.c	/^void devfs_init()$/
+devfs_open	devfs.c	/^struct file* devfs_open(struct file *mounted_f, char *filename)$/
+devfs_read	devfs.c	/^int devfs_read(struct file *current_f, char *buffer, int size)$/
+device_init	floppy_driver.c	/^void device_init()$/
+fat_init	fat.c	/^void fat_init()$/
+fat_open	fat.c	/^struct file* fat_open(struct file *mounted_f, char *filename)$/
+fat_read	fat.c	/^int fat_read(struct file *current_f, char *buffer, int size)$/
+filename_split	main.c	/^void filename_split(char *filewithpath, char *drive, char *filetitle)$/
+get_mount_point	vfs.c	/^struct mount_point *get_mount_point(char *drive)$/
+in	floppy.c	/^int in(int port)$/
+main	main.c	/^int main()$/
+mount	vfs.c	/^void mount(struct file *source, char *fsname, char *drive)$/
+open	main.c	/^struct file *open(char *filename)$/
+out	floppy.c	/^void out(int port,int value)$/
+register_devfs	devfs.c	/^void register_devfs(device_t device, struct file_operations *fo, char$/
+register_fs	vfs.c	/^void register_fs(char *fsname,struct fsinfo *fsi)$/

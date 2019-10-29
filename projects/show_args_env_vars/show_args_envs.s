@@ -90,9 +90,9 @@ strlen:
 	mov ecx,0xFFFFFFFF	; max length possible (-1 when negated)
 	mov edi,[ebp+.str]	; the location of the string
 	repne scasb
-	neg ecx			; ecx was decrementing from zero
+	neg ecx			; ecx was not decrementing from zero
 				; ecx started with -1, and counted passed EOL,
-	sub ecx,2		;so we do -2
+	sub ecx,2		; so we do -2
 	mov eax, ecx		; return via eax
 
 	pop ecx

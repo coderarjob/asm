@@ -1,0 +1,2 @@
+We cannot have external symbols that will be mapped during linking process, 
+becuase we do not have a linking step in raw binary files.

@@ -1,0 +1,51 @@
+
+
+
+
+There seems a major issue that I am facing when using C to write code for x86
+real mode in segmented memory model. Let me begin with the problem that I am
+facing with the compiler (ia16-elf-gcc and bcc in my case)
+
+`
+	char ch;
+
+	void main()
+	{
+		char i = 0;
+		char a[16];
+		ch = a[i];
+	}
+`
+
+The translation to the above C program is below.
+
+ia16-elf-gcc:
+-------------
+
+	Assemptions:
+		1. array 'a' and 'i' are allocated in the stack
+		2. 'i' is located at BP - 0x1
+		3. 'a[0]' is located at BP - 0x11
+
+`
+// ch = a[i]
+1	00000156  8A46FF            mov al,[bp-0x1]		
+2	00000159  30E4              xor ah,ah
+3	0000015B  89C7              mov di,ax
+4	0000015D  89EE              mov si,bp
+5	0000015F  89FB              mov bx,di
+6	00000161  8A40EF            mov al,[bx+si-0x11]
+7	00000164  A28401            mov [0x184],al
+`
+The problem is that the SP works with SS segment and all the other moves work
+with DS segment. In the scenario DS <> SS the following occours:
+
+	AL = DS:BX+SI-0x11  <>  SS:BX+SI-0x11
+
+Now AL should have been referenced from the SS (as we want to retrive the
+ith value in 'a' array, and the 'a' array with all its values is in the stack.)
+However this is not the case, `MOV AL,[BX+SI-0x11]` will be referenced from the
+DS. So AL now has a wrong value as the addresss from which its value was read
+was wrong in the first place. (Value in segment registers and the offset,
+together make the address. Wrong segment register, even though the offset value
+is correct will result in the wrong address after all).

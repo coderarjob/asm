@@ -1,0 +1,61 @@
+* Local variables are allocated on te stack in the order that they are defined.
+char a = 10,
+	 b = 12,
+	 c = a;
+
+Allocation:
+	a will be allocated the highest memory in stack and c the lowest.
+
+Disassembly:
+	dec sp
+	mov [bp - 5], 10		; -5 because si, di is also pushed in stack before
+	dec
+	mov [bp - 6], 12
+	dec
+	mov al, [bp - 5]
+	mov [bp - 7], al
+
+* Function parameters are pushed right to left.
+
+add(1,3)
+
+	push 3
+	push 1
+	call add
+
+* Pointers:
+	char a = 10;
+	char *b = &a;
+
+	dec sp
+	mov [bp - 5], 10
+	sub sp, 3
+	lea ax, [bp - 5]
+	mov [bp - 8], ax
+
+Note: Even though addresses are 2 byte in 8086, it still is allocating 3 bytes.
+Don't know why...Could it be due to some alignment constraints??
+
+* C function name like 'add' becomes '_add' in the assembly. When calling a C
+function from inline assembly, use the underscore
+
+#asm
+	call _main
+#endasm
+
+void main()
+{
+
+}
+
+* Size of premitive types
+
+	TYPE		SIZE (in bytes)
+	---------	---------------
+	char		1
+	int			2
+	*			2
+	short		2
+	long		4
+
+

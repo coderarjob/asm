@@ -1,0 +1,33 @@
+     1                                  
+     2                                  section .text
+     3                                  	global _start
+     4                                  
+     5                                  _start:
+     6 00000000 6A0A                    	push 10
+     7 00000002 6A0C                    	push 12
+     8 00000004 E80C000000              	call add
+     9                                  
+    10 00000009 B800000000              	mov eax, 0
+    11 0000000E BB01000000              	mov ebx, 1
+    12 00000013 CD80                    	int 0x80
+    13                                  
+    14                                  add:
+    15                                  	struc add_params, -12
+    16 FFFFFFF4 <res 00000004>          		.val1: resd 1
+    17 FFFFFFF8 <res 00000008>          		.val2: resd 2
+    18                                  	endstruc
+    19                                  
+    20 00000015 55                      	push ebp
+    21 00000016 89E5                    	mov ebp, esp
+    22 00000018 53                      	push ebx
+    23                                  	
+    24 00000019 B80C000000              	mov eax, add_params_size
+    25 0000001E 8B450C                  	mov eax, [ebp - add_params.val1]
+    26 00000021 8B5D08                  	mov ebx, [ebp - add_params.val2]
+    27 00000024 01E8                    	add eax, ebp
+    28                                  
+    29 00000026 5B                      	pop ebx
+    30 00000027 C9                      	leave
+    31 00000028 C3                      	ret
+    32                                  
+    33                                  		

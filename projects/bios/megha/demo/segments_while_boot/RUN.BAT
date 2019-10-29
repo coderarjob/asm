@@ -1,1 +1,0 @@
-call seg.com
