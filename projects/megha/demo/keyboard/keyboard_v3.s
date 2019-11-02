@@ -43,8 +43,17 @@ _init:
 
 	; Get the key code
 	mov dl, [key.keycode]
-	call printhex
+	;call printhex
 
+	; Get the key code
+	mov dl, [key.ascii]
+	cmp dl, 0
+	je .flags
+
+	call printchar
+	;call printhex
+
+.flags:
 	; Get flags
 	mov dl, [key.flags]
 	;call printhex
@@ -121,8 +130,33 @@ kb_interrupt:
 		; ----------------------------------------
 		xor bx, bx
 		mov bl, al
+		
+		test [key.flags],byte EXTENDED
+		jz .resolve
+
+		; We have an Extended key, so we do a little math to resolve a
+		; normalized scancode. 
+		; Note: This calculation will change is the we start receiving
+		; different scancodes, for example when attaching a new keyboard.
+
+		; The calculation normalizes scan codes for the Effective keys and
+		; makes the effective key with the smallest scan code start from 0.
+		; The smallest scan code for any effective key (in my current keyboard)
+		; is 0x1D or 29.
+
+		; The maximum scan code generated from my computer keyboard is 0x5B or
+		; 91 in decimal. So the Scan codes for these Extended keys must be after
+		; 91. I have chosen that the effective scan code for the first Extended
+		; key should be 100.
+
+		; Normalized position (zero based) = Scan Code - 0x1D
+		; Position in the keycodes array = Normalized position + 100
+
+		add bx, 100 - 0x1d
+.resolve:
 		mov ah, [key_codes + bx]
 		mov [key.keycode], ah
+
 
 		; ----------------------------------------
 		; Check for SHIFT key press
@@ -323,11 +357,22 @@ kb_interrupt:
 		jmp .endb
 
 .end:
+		; Get ASCII code
+		xor bx, bx
+		mov bl, [key.keycode]
+		mov bl, [modifier_maps + bx]
+		shl bx, 1
+
+		;mov dx, bx
+		;call printhex
+		
+		call [modifiers_routines + bx]
+
 		; We add to the queue here
 		mov [dirty], byte 1
 
 		; CLEAR EXTENDED Flag
-		; EXTENDED Flag is just an indecation that the current keycode is part
+		; EXTENDED Flag is just an indication that the current keycode is part
 		; of an Extended keybord or not. It is not marked continously through
 		; multiple keypresses like the SHIFT or CONTROL key.
 		and [key.flags], byte ~EXTENDED
@@ -354,7 +399,7 @@ wait_kbd:
 	push ax
 .check:
 		in al, 0x64
-		test al, 0x2
+		test al, 0x2		; Check PS/2 input buffer. If full we check again.
 		jnz .check
 	pop ax
 	ret
@@ -436,6 +481,7 @@ key:
 	.caps_state db 0
 	.nums_state db 0
 	.scroll_state db 0
+	.ascii db 0
 
 ; -----------------------------------------------------------------
 ; Scan code to Key code map
@@ -455,18 +501,22 @@ key:
 ; -----------------------------------------------------------------
 key_codes:
 	db 0,1,2,3,4,5,6,7									; 0x7
-	db 8, 9,0xA,0xB,'-','=',0xE			 				; 0xE
-	db 0xF, 'Q', 'W', 'E', 'R', 'T'						; 0x14
-	db 'Y', 'U', 'I', 'O', 'P', '['						; 0x1A
-	db ']',0x1C, 0x1D,'A','S','D','F'					; 0x21
-	db 'G','H','J','K','L',';', "'", '`'				; 0x29
-	db 0x2A, '\', 'Z', 'X', 'C', 'V', 'B'				; 0x30
-	db 'N', 'M', ',', '.', '/', 0x36, 0x37				; 0x37
-	db 0x38, ' ', 0x3A, 0x61, 0x62, 0x63				; 0x3D
-	db 0x64, 0x65, 0x66, 0x67, 0x68, 0x69				; 0x43
-	db 0x6A, 0x45, 0x46, 0x17, 0x18, 0x19, '-'			; 0x4A
-	db 0x14, 0x15, 0x16, '+', 0x11, 0x12, 0x13, 0x10    ; 0x52
-	db 0x6D,0x54,0x55,0x56,0x6B,0x6C					; 0x58
+	db 8, 9,0xA,0xB,0x1D,0x28,0xC			 			; 0xE
+	db 0xD, 'Q', 'W', 'E', 'R', 'T'						; 0x14
+	db 'Y', 'U', 'I', 'O', 'P', 0x29					; 0x1A
+	db 0x2B,0x18, 0x19,'A','S','D','F'					; 0x21
+	db 'G','H','J','K','L',0x27, 0x1B, 0x2C				; 0x29
+	db 0x1C, 0x2A, 'Z', 'X', 'C', 'V', 'B'				; 0x30
+	db 'N', 'M', 0x20, 0x21, 0x22, 0x23, 0x24			; 0x37
+	db 0x25, 0x1A, 0x26, 0x2D, 0x2E, 0x2F				; 0x3D
+	db 0x30, 0x31, 0x32, 0x33, 0x34, 0x35				; 0x43
+	db 0x36, 0x3A, 0x3B, 0x15, 0x16, 0x17, 0x1F			; 0x4A
+	db 0x12, 0x14, 0x13, 0x1E, 0xF, 0x10, 0x11, 0xE     ; 0x52
+	db 0x39,0,0,0,0x37,0x38,0,0,0,0,0,0,0,0,0,0,0		; 0x63
+	db 0x3C, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0		; 0x77
+	db 0,0,0,0,0,0,0x3D, 0x3E, 0,0,0,0,0,0,0,0,0,0		; 0x89
+	db 0,0,0,0,0x3F,0x40,0x5B, 0,0x5C,0,0x5D,0,0x5E		; 0x96
+	db 0x5F, 0x60, 0x61, 0x62, 0,0,0,0,0,0,0,0x63		; 0xA2
 
 .LSHIFT: EQU 0x2A
 .RSHIFT: EQU 0x36
@@ -482,23 +532,181 @@ key_codes:
 ; Key codes with combinations of SHIFT key and CAPS lock key and NUM lock key
 ; are mapped to get corresponding ASCII codes.
 ;
-;No Change Keys: 
-;	BackSpace (0x8), Tab (0x9), Enter (0x10), Left Control (0x1D),
-;	ESC (0x1), Left Shift (0x2A), Right Shift (0x36), Left Alt (0x38), 
-;	CapsLock (0x3A), F1 (0x61), ... F12 (0x6C), NUM Lock (0x45), 
-;	Scroll Lock (0x46), Delete (0x6D), Extended Up Arrow (0x18), Extended Left
-;	Arrow (0x14), Extended Right Arrow (0x16), Extended Down Arrow (0x12)
-;
-;Change Using Shift:
-;	1 (0x2) ... 9 (0xA), 0 (0xB), - (0x2D), = (0x3D), A (0x41) ... Z (0x5A), 
-;	[ (0x5B), ] (0x5D), ; (0x3B), ' (0x27), ` (0x60), \ (0x5C), Comma (0x2C), 
-;	.  (0x2E), / (0x2F)
-;
-;Change Using Caps Lock:
-;	A (0x41) .... Z (0x5A)
-;
-;Change Using Num Lock:
-;	Non Extended Numeric Key Pad: 0 (0x10) ... 9 (0x19)
 ; -----------------------------------------------------------------
 
-ascii:		; Normal, Shifted, CAPS Lock
+
+; Sets the ASCII Code for the key code.
+get_ascii:
+.no_modifier_keys:
+	push ax
+	push bx
+		xor bx, bx
+		mov bl, [key.keycode]
+		jmp .normal
+		
+.shift_modified_keys:
+	push ax
+	push bx
+.shift_modified_keys_1:
+		xor bx, bx
+		mov bl, [key.keycode]
+
+		test [key.flags], byte SHIFT		
+		jz .normal							; SHIFT is not PRESSED
+	
+		xor ax, ax
+		mov al, [shift + bx]				; SHIFT is PRESSED
+		jmp .end
+
+.shift_caps_modified_keys:
+	push ax
+	push bx
+		xor bx, bx
+		mov bl, [key.keycode]
+
+		test [key.flags], byte SHIFT
+		jz .caps_modified_keys_1				 ; SHIFT is not PRESSED
+
+		test [key.flags], byte CAPS
+		jz .shift_modified_keys_1				; JUST SHIFT is PRESSED
+
+		xor ax, ax
+		mov al, [shift_caps + bx]			; SHIFT and CAPS are PRESSED.
+		jmp .end
+
+.caps_modified_keys:
+	push ax
+	push bx
+.caps_modified_keys_1:
+		xor bx, bx
+		mov bl, [key.keycode]
+	
+		test [key.flags], byte CAPS
+		jz .normal 							; JUST SHIFT is PRESSED
+
+		xor ax, ax
+		mov al, [caps + bx]
+		jmp .end
+
+.num_modified_keys:
+	push ax
+	push bx
+		xor bx, bx
+		mov bl, [key.keycode]
+
+		test [key.flags],byte NUM
+		jz .normal
+
+		xor ax, ax
+		mov al, [num + bx]
+		jmp .end
+
+.normal:
+		xor ax, ax
+		mov al, [normal + bx]
+.end:
+	mov [key.ascii], al
+	pop bx
+	pop ax
+	ret
+
+NONE: EQU 0
+M_SHIFT: EQU 1
+M_SCAPS: EQU 2
+M_CAPS: EQU 3
+M_NUM: EQU 4
+
+modifiers_routines: 
+dw					get_ascii.no_modifier_keys
+dw					get_ascii.shift_modified_keys
+dw					get_ascii.shift_caps_modified_keys
+dw					get_ascii.caps_modified_keys
+dw					get_ascii.num_modified_keys
+				
+modifier_maps:
+		;0/8  1/9   2/A   3/B   4/C   5/D   6/E   7/F 
+db		NONE, NONE, M_SHIFT,M_SHIFT,M_SHIFT,M_SHIFT,M_SHIFT,M_SHIFT		; 0x7
+db		M_SHIFT,M_SHIFT,M_SHIFT,M_SHIFT,NONE, NONE, M_NUM,  M_NUM		; 0xF
+db		M_NUM,  M_NUM,  M_NUM,  M_NUM,  M_NUM,  M_NUM,  M_NUM,  M_NUM	; 0x17
+db		NONE, NONE, NONE,M_SHIFT, NONE, M_SHIFT,NONE, NONE				; 0x1F
+db		M_SHIFT,M_SHIFT,M_SHIFT,NONE, NONE, NONE, NONE, M_SHIFT			; 0x27
+db		M_SHIFT,M_SHIFT,M_SHIFT,M_SHIFT,M_SHIFT,NONE, NONE, NONE		; 0x2F
+db		NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE					; 0x37
+db		NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE					; 0x3F 
+db		NONE,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS	; 0x47
+db		M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS ; 0x4F
+db		M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS ; 0x57
+db		M_SCAPS,M_SCAPS,M_SCAPS, NONE, NONE, NONE, NONE, NONE			; 0x5F
+db		NONE, NONE, NONE, NONE											; 0x63
+
+normal:		
+			;0/8  1/9   2/A   3/B   4/C   5/D   6/E   7/F 
+db			0x00, 0x00 ,'123456'								; 0x7
+db			'7890'                  , 0x00, 0x00, 0x00, 0x00	; 0xF
+db			0x00, 0x00, 0x00, 0x0   , 0x00, 0x00, 0x00, 0x00	; 0x17
+db			0xA , 0x00, ' ', "'" 	, 0x00, '-' ,  '+',  '-'	; 0x1F 
+db			',' , '.' , '/' , 0x00  , '*' , 0x00, 0x00, ';'		; 0x27
+db			'=[\]`'    					  , 0x00, 0x00, 0x00	; 0x2F
+db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x37
+db			0x00, '.' , 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x3F
+db			0x00, "abcdefghijklmnopqrstuvwxyz"					; 0x5A
+db							  0x00  , 0x00, 0x00, 0x00, 0x00	; 0x5F
+db			0x00, 0x00, 0x00, 0x00								; 0x63
+
+shift:		
+			;0/8  1/9   2/A   3/B   4/C   5/D   6/E   7/F 
+db			0x00, 0x00 ,'!@#$%^'								; 0x7
+db			'&*()'                  , 0x00, 0x00, 0x61, 0x5E	; 0xF
+db			0x5F, 0x60, 0x5C, 0x0   , 0x5D, 0x3F, 0x40, 0x5B	; 0x17
+db			0xA , 0x00, 0x20, '"' 	, 0x00, '_' ,  '+',  '-'	; 0x1F 
+db			'<' , '>' , '?' , 0x00  , '*' , 0x00, 0x00, ':'		; 0x27
+db			'+{|}~'    					  , 0x00, 0x00, 0x00	; 0x2F
+db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x37
+db			0x00, '.' , 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x3F
+db			0x00, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"					; 0x5A
+db							  0x00  , 0x00, 0x00, 0x00, 0x00	; 0x5F
+db			0x00, 0x00, 0x00, 0x00								; 0x63
+
+caps:		
+			;0/8  1/9   2/A   3/B   4/C   5/D   6/E   7/F 
+db			0x00, 0x00 ,'123456'								; 0x7
+db			'7890'                  , 0x00, 0x00, 0x61, 0x5E	; 0xF
+db			0x5F, 0x60, 0x5C, 0x0   , 0x5D, 0x3F, 0x40, 0x5B	; 0x17
+db			0xA , 0x00, 0x20, "'" 	, 0x00, '-' ,  '+',  '-'	; 0x1F 
+db			',' , '.' , '/' , 0x00  , '*' , 0x00, 0x00, ';'		; 0x27
+db			'=[\]`'    					  , 0x00, 0x00, 0x00	; 0x2F
+db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x37
+db			0x00, '.' , 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x3F
+db			0x00, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"					; 0x5A
+db							  0x00  , 0x00, 0x00, 0x00, 0x00	; 0x5F
+db			0x00, 0x00, 0x00, 0x00								; 0x63
+
+shift_caps:		
+			;0/8  1/9   2/A   3/B   4/C   5/D   6/E   7/F 
+db			0x00, 0x00 ,'!@#$%^'								; 0x7
+db			'&*()'                  , 0x00, 0x00, 0x61, 0x5E	; 0xF
+db			0x5F, 0x60, 0x5C, 0x0   , 0x5D, 0x3F, 0x40, 0x5B	; 0x17
+db			0xA , 0x00, 0x20, '"' 	, 0x00, '_' ,  '+',  '-'	; 0x1F 
+db			'<' , '>' , '?' , 0x00  , '*' , 0x00, 0x00, ':'		; 0x27
+db			'+{|}~'    					  , 0x00, 0x00, 0x00	; 0x2F
+db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x37
+db			0x00, '.' , 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x3F
+db			0x00, "abcdefghijklmnopqrstuvwxyz"					; 0x5A
+db							  0x00  , 0x00, 0x00, 0x00, 0x00	; 0x5F
+db			0x00, 0x00, 0x00, 0x00								; 0x63
+
+num:		
+			;0/8  1/9   2/A   3/B     4/C    5/D   6/E   7/F 
+db			0x00, 0x00 ,'123456'								; 0x7
+db			'7890'                  , 0x00, 0x00, '0123456789'	; 0x17
+db			0xA , 0x00, 0x20, "'" 	, 0x00, '-' ,  '+',  '-'	; 0x1F 
+db			',' , '.' , '/' , 0x00  , '*' , 0x00, 0x00, ';'		; 0x27
+db			'=[\]`'    					  , 0x00, 0x00, 0x00	; 0x2F
+db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x37
+db			0x00, '.' , 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x3F
+db			0x00, "abcdefghijklmnopqrstuvwxyz"					; 0x5A
+db							  0x00  , 0x00, 0x00, 0x00, 0x00	; 0x5F
+db			0x00, 0x00, 0x00, 0x00								; 0x63
+			
+
+
