@@ -1,8 +1,8 @@
 ; DOS program that enquires keyboard controller about the status of its input
 ; buffer.
 
-	org 0x64
-	;org 0x100
+	;org 0x64
+	org 0x100
 
 _init:
 	; clear the screen
@@ -27,43 +27,43 @@ _init:
 	mov [gs:9*4], word kb_interrupt
 	mov [gs:9*4+2],cs
 
+	mov dl, '@'
+	call printchar
+
 .check:	
 	; Check if any key was pressed
 	cmp [dirty], byte 1
 	jne .check
 
-	; Get the scan code
+	; -------------------------
+	; Rest the dirty flag
+	; -------------------------
+	mov [dirty], byte 0
+
+	; -------------------------
+	; Read ASCII code
+	; -------------------------
 	xor dx, dx
-	mov dl, [key.scancode]
-	;call printhex
-	
-	; If ESC was pressed, we exit
-	cmp dl, 1
+
+	cli
+		mov al, [key.keycode]
+		mov bl, [key.flags]
+		mov cl, [key.ascii]
+	sti
+
+	cmp al, 1
 	je .end
 
-	; Get the key code
-	mov dl, [key.keycode]
-	;call printhex
+	test bl, byte PRESSED
+	jz .check
 
-	; Get the key code
-	mov dl, [key.ascii]
+	mov dl, cl
 	cmp dl, 0
-	je .flags
+	je .check
 
 	call printchar
 	;call printhex
 
-.flags:
-	; Get flags
-	mov dl, [key.flags]
-	;call printhex
-
-	; Get leds
-	mov dl, [key.leds]
-	;call printhex
-
-	; Rest the dirty flag
-	mov [dirty], byte 0
 	jmp .check
 
 .end:
@@ -74,9 +74,9 @@ _init:
 	mov [gs:9*4+2],ax
 
 	; exit dos
-	retf
-	;mov ah, 0x4c
-	;int 0x21
+	;retf
+	mov ah, 0x4c
+	int 0x21
 
 kb_interrupt:
 	pusha
@@ -142,21 +142,20 @@ kb_interrupt:
 		; The calculation normalizes scan codes for the Effective keys and
 		; makes the effective key with the smallest scan code start from 0.
 		; The smallest scan code for any effective key (in my current keyboard)
-		; is 0x1D or 29.
+		; is 0x1C or 28.
 
 		; The maximum scan code generated from my computer keyboard is 0x5B or
 		; 91 in decimal. So the Scan codes for these Extended keys must be after
 		; 91. I have chosen that the effective scan code for the first Extended
 		; key should be 100.
 
-		; Normalized position (zero based) = Scan Code - 0x1D
+		; Normalized position (zero based) = Scan Code - 0x1C
 		; Position in the keycodes array = Normalized position + 100
 
-		add bx, 100 - 0x1d
+		add bx, 100 - 0x1C
 .resolve:
 		mov ah, [key_codes + bx]
 		mov [key.keycode], ah
-
 
 		; ----------------------------------------
 		; Check for SHIFT key press
@@ -179,7 +178,6 @@ kb_interrupt:
 .n2_rel:
 		and [key.flags], byte ~SHIFT	; CLEAR SHIFT Flag
 		jmp .end
-
 .n3:
 		; ----------------------------------------
 		; Check for CONTROL key press
@@ -237,7 +235,7 @@ kb_interrupt:
 		mov [key.caps_state], byte 1
 		or [key.flags], byte CAPS
 		or [key.leds], byte CAPS_LED
-		jmp .end
+		jmp .end_led_modified
 .caps_case1:
 		test [key.flags], byte PRESSED
 		jnz .end
@@ -253,7 +251,7 @@ kb_interrupt:
 		mov [key.caps_state], byte 3
 		and [key.flags], byte ~CAPS
 		and [key.leds], byte ~CAPS_LED
-		jmp .end
+		jmp .end_led_modified
 .caps_case3:
 		test [key.flags], byte PRESSED
 		jnz .end
@@ -282,7 +280,7 @@ kb_interrupt:
 		mov [key.nums_state], byte 1
 		or [key.flags], byte NUM
 		or [key.leds], byte NUM_LED
-		jmp .end
+		jmp .end_led_modified
 .nums_case1:
 		test [key.flags], byte PRESSED
 		jnz .end
@@ -298,7 +296,7 @@ kb_interrupt:
 		mov [key.nums_state], byte 3
 		and [key.flags], byte ~NUM
 		and [key.leds], byte ~NUM_LED
-		jmp .end
+		jmp .end_led_modified
 .nums_case3:
 		test [key.flags], byte PRESSED
 		jnz .end
@@ -312,7 +310,7 @@ kb_interrupt:
 		; ----------------------------------------
 
 		cmp al, key_codes.SCROLL_LOCK
-		jne .end
+		jne .end							; Not SCROLL Lock
 
 		mov bx, [key.scroll_state]
 		imul bx, 2
@@ -320,13 +318,13 @@ kb_interrupt:
 
 .scroll_case0:
 		test [key.flags], byte PRESSED
-		jz .end
+		jz .end								; LED update is not needed.
 
 		; --- key is pressed, we engage the SCROLL Lock and LEDs
 		mov [key.scroll_state], byte 1
 		or [key.flags], byte SCROLL_LOCK
 		or [key.leds], byte SCROLL_LED
-		jmp .end
+		jmp .end_led_modified				; Update LEDs
 .scroll_case1:
 		test [key.flags], byte PRESSED
 		jnz .end
@@ -342,7 +340,7 @@ kb_interrupt:
 		mov [key.scroll_state], byte 3
 		and [key.flags], byte ~SCROLL_LOCK
 		and [key.leds], byte ~SCROLL_LED
-		jmp .end
+		jmp .end_led_modified
 .scroll_case3:
 		test [key.flags], byte PRESSED
 		jnz .end
@@ -350,24 +348,36 @@ kb_interrupt:
 		; --- Key is released, we move the state
 		mov [key.scroll_state], byte 0
 		jmp .end
-
 .extended_get_next_key:
 		; Note that we do not want to add 0xE0 into the queue, so we skip the
 		; below instruction
 		jmp .endb
 
+.end_led_modified:
+		; Set the LEDS
+		call wait_kbd
+		mov al, 0xED
+		out 0x60, al
+
+		call wait_kbd
+		mov al, [key.leds]
+		out 0x60, al
 .end:
-		; Get ASCII code
+		; Get ASCII code for the keycode
 		xor bx, bx
 		mov bl, [key.keycode]
 		mov bl, [modifier_maps + bx]
 		shl bx, 1
 
-		;mov dx, bx
-		;call printhex
-		
 		call [modifiers_routines + bx]
 
+		;test [key.flags], byte PRESSED
+		;jz .cont
+
+		;mov dl, [key.ascii]
+		;call printchar
+
+.cont:
 		; We add to the queue here
 		mov [dirty], byte 1
 
@@ -376,14 +386,6 @@ kb_interrupt:
 		; of an Extended keybord or not. It is not marked continously through
 		; multiple keypresses like the SHIFT or CONTROL key.
 		and [key.flags], byte ~EXTENDED
-
-		; Set the LEDS
-		call wait_kbd
-		mov al, 0xED
-		out 0x60, al
-		call wait_kbd
-		mov al, [key.leds]
-		out 0x60, al
 .endb:
 		; send a EOI to PIC
 		mov al, 0x20
@@ -440,20 +442,19 @@ cpos: dw 0
 ; Input:
 ;	DX = Character
 printchar:
-	push es
+	push gs
 	pusha
 
 		; setup the segment registers
 		mov bx, 0xb800
 		mov gs,bx
 		mov bx, [cpos]	; load the current memory offset to write to.
-		; the below loop will run 4 times.
 
 		mov [gs:bx], dl
 		mov [gs:bx+1],byte 0xF
 		add word [cpos], 2
 	popa
-	pop es
+	pop gs
 	ret
 
 NUM: EQU 0x1
@@ -511,12 +512,13 @@ key_codes:
 	db 0x25, 0x1A, 0x26, 0x2D, 0x2E, 0x2F				; 0x3D
 	db 0x30, 0x31, 0x32, 0x33, 0x34, 0x35				; 0x43
 	db 0x36, 0x3A, 0x3B, 0x15, 0x16, 0x17, 0x1F			; 0x4A
-	db 0x12, 0x14, 0x13, 0x1E, 0xF, 0x10, 0x11, 0xE     ; 0x52
-	db 0x39,0,0,0,0x37,0x38,0,0,0,0,0,0,0,0,0,0,0		; 0x63
-	db 0x3C, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0		; 0x77
-	db 0,0,0,0,0,0,0x3D, 0x3E, 0,0,0,0,0,0,0,0,0,0		; 0x89
-	db 0,0,0,0,0x3F,0x40,0x5B, 0,0x5C,0,0x5D,0,0x5E		; 0x96
-	db 0x5F, 0x60, 0x61, 0x62, 0,0,0,0,0,0,0,0x63		; 0xA2
+	db 0x12, 0x13, 0x14, 0x1E, 0xF, 0x10, 0x11, 0xE     ; 0x52
+	db 0x39,0,0,0,0x37,0x38,0,0,0,0,0,0,0,0,0,0,0x00	; 0x63
+	db 0x64, 0x3C,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 ; 0x78
+	db 0,0,0,0,0,0,0x3D, 0x3E, 0,0,0,0,0,0,0,0,0,0		; 0x8A
+	db 0,0,0,0,0x3F,0x40,0x5B, 0,0x5C,0,0x5D,0,0x5E		; 0x97
+	db 0x5F, 0x60, 0x61, 0x62, 0,0,0,0,0,0,0,0x63,0		; 0xA4
+	db 0x65												; 0xA5
 
 .LSHIFT: EQU 0x2A
 .RSHIFT: EQU 0x36
@@ -637,13 +639,13 @@ db		NONE,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS	; 0x47
 db		M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS ; 0x4F
 db		M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS,M_SCAPS ; 0x57
 db		M_SCAPS,M_SCAPS,M_SCAPS, NONE, NONE, NONE, NONE, NONE			; 0x5F
-db		NONE, NONE, NONE, NONE											; 0x63
+db		NONE, NONE, NONE, NONE, NONE, NONE								; 0x65
 
 normal:		
 			;0/8  1/9   2/A   3/B   4/C   5/D   6/E   7/F 
-db			0x00, 0x00 ,'123456'								; 0x7
+db			0x00, 0x1B ,'123456'								; 0x7
 db			'7890'                  , 0x00, 0x00, 0x00, 0x00	; 0xF
-db			0x00, 0x00, 0x00, 0x0   , 0x00, 0x00, 0x00, 0x00	; 0x17
+db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x17
 db			0xA , 0x00, ' ', "'" 	, 0x00, '-' ,  '+',  '-'	; 0x1F 
 db			',' , '.' , '/' , 0x00  , '*' , 0x00, 0x00, ';'		; 0x27
 db			'=[\]`'    					  , 0x00, 0x00, 0x00	; 0x2F
@@ -651,13 +653,13 @@ db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x37
 db			0x00, '.' , 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x3F
 db			0x00, "abcdefghijklmnopqrstuvwxyz"					; 0x5A
 db							  0x00  , 0x00, 0x00, 0x00, 0x00	; 0x5F
-db			0x00, 0x00, 0x00, 0x00								; 0x63
+db			0x00, 0x00, 0x00, 0x00  , 0xA , 0x00				; 0x65
 
 shift:		
 			;0/8  1/9   2/A   3/B   4/C   5/D   6/E   7/F 
-db			0x00, 0x00 ,'!@#$%^'								; 0x7
+db			0x00, 0x1B ,'!@#$%^'								; 0x7
 db			'&*()'                  , 0x00, 0x00, 0x61, 0x5E	; 0xF
-db			0x5F, 0x60, 0x5C, 0x0   , 0x5D, 0x3F, 0x40, 0x5B	; 0x17
+db			0x5F, 0x60, 0x5C, 0x00  , 0x5D, 0x3F, 0x40, 0x5B	; 0x17
 db			0xA , 0x00, 0x20, '"' 	, 0x00, '_' ,  '+',  '-'	; 0x1F 
 db			'<' , '>' , '?' , 0x00  , '*' , 0x00, 0x00, ':'		; 0x27
 db			'+{|}~'    					  , 0x00, 0x00, 0x00	; 0x2F
@@ -665,13 +667,13 @@ db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x37
 db			0x00, '.' , 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x3F
 db			0x00, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"					; 0x5A
 db							  0x00  , 0x00, 0x00, 0x00, 0x00	; 0x5F
-db			0x00, 0x00, 0x00, 0x00								; 0x63
+db			0x00, 0x00, 0x00, 0x00  , 0xA , 0x00				; 0x65
 
 caps:		
 			;0/8  1/9   2/A   3/B   4/C   5/D   6/E   7/F 
-db			0x00, 0x00 ,'123456'								; 0x7
+db			0x00, 0x1B ,'123456'								; 0x7
 db			'7890'                  , 0x00, 0x00, 0x61, 0x5E	; 0xF
-db			0x5F, 0x60, 0x5C, 0x0   , 0x5D, 0x3F, 0x40, 0x5B	; 0x17
+db			0x5F, 0x60, 0x5C, 0x00  , 0x5D, 0x3F, 0x40, 0x5B	; 0x17
 db			0xA , 0x00, 0x20, "'" 	, 0x00, '-' ,  '+',  '-'	; 0x1F 
 db			',' , '.' , '/' , 0x00  , '*' , 0x00, 0x00, ';'		; 0x27
 db			'=[\]`'    					  , 0x00, 0x00, 0x00	; 0x2F
@@ -679,13 +681,13 @@ db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x37
 db			0x00, '.' , 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x3F
 db			0x00, "ABCDEFGHIJKLMNOPQRSTUVWXYZ"					; 0x5A
 db							  0x00  , 0x00, 0x00, 0x00, 0x00	; 0x5F
-db			0x00, 0x00, 0x00, 0x00								; 0x63
+db			0x00, 0x00, 0x00, 0x00  , 0xA , 0x00				; 0x65
 
 shift_caps:		
 			;0/8  1/9   2/A   3/B   4/C   5/D   6/E   7/F 
-db			0x00, 0x00 ,'!@#$%^'								; 0x7
+db			0x00, 0x1B ,'!@#$%^'								; 0x7
 db			'&*()'                  , 0x00, 0x00, 0x61, 0x5E	; 0xF
-db			0x5F, 0x60, 0x5C, 0x0   , 0x5D, 0x3F, 0x40, 0x5B	; 0x17
+db			0x5F, 0x60, 0x5C, 0x00  , 0x5D, 0x3F, 0x40, 0x5B	; 0x17
 db			0xA , 0x00, 0x20, '"' 	, 0x00, '_' ,  '+',  '-'	; 0x1F 
 db			'<' , '>' , '?' , 0x00  , '*' , 0x00, 0x00, ':'		; 0x27
 db			'+{|}~'    					  , 0x00, 0x00, 0x00	; 0x2F
@@ -693,11 +695,11 @@ db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x37
 db			0x00, '.' , 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x3F
 db			0x00, "abcdefghijklmnopqrstuvwxyz"					; 0x5A
 db							  0x00  , 0x00, 0x00, 0x00, 0x00	; 0x5F
-db			0x00, 0x00, 0x00, 0x00								; 0x63
+db			0x00, 0x00, 0x00, 0x00  , 0xA , 0x00				; 0x65
 
 num:		
 			;0/8  1/9   2/A   3/B     4/C    5/D   6/E   7/F 
-db			0x00, 0x00 ,'123456'								; 0x7
+db			0x00, 0x1B ,'123456'								; 0x7
 db			'7890'                  , 0x00, 0x00, '0123456789'	; 0x17
 db			0xA , 0x00, 0x20, "'" 	, 0x00, '-' ,  '+',  '-'	; 0x1F 
 db			',' , '.' , '/' , 0x00  , '*' , 0x00, 0x00, ';'		; 0x27
@@ -706,7 +708,7 @@ db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x37
 db			0x00, '.' , 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x3F
 db			0x00, "abcdefghijklmnopqrstuvwxyz"					; 0x5A
 db							  0x00  , 0x00, 0x00, 0x00, 0x00	; 0x5F
-db			0x00, 0x00, 0x00, 0x00								; 0x63
+db			0x00, 0x00, 0x00, 0x00  , 0xA , 0x00				; 0x65
 			
 
 
