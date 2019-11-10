@@ -1,8 +1,8 @@
 ; DOS program that enquires keyboard controller about the status of its input
 ; buffer.
 
-	;org 0x64
-	org 0x100
+	org 0x64
+	;org 0x100
 
 _init:
 	; clear the screen
@@ -30,6 +30,8 @@ _init:
 	mov dl, '@'
 	call printchar
 
+	mov ax, 0x3
+	call set_attribute
 .check:	
 	; Check if any key was pressed
 	cmp [dirty], byte 1
@@ -61,7 +63,21 @@ _init:
 	cmp dl, 0
 	je .check
 
-	call printchar
+	mov [string], cl
+	mov bx, 1
+
+	cmp cl, 0xA
+	jne .anykey
+	
+	; CR is received, we need to put LF as well.
+	mov [string + 1], byte 0xD
+	mov bx, 2
+
+.anykey:
+	mov ax, string
+	mov cx, 0
+	call write_term
+	;call printchar
 	;call printhex
 
 	jmp .check
@@ -74,9 +90,11 @@ _init:
 	mov [gs:9*4+2],ax
 
 	; exit dos
-	;retf
-	mov ah, 0x4c
-	int 0x21
+	retf
+	;mov ah, 0x4c
+	;int 0x21
+
+string: dw 0
 
 kb_interrupt:
 	pusha
@@ -711,4 +729,4 @@ db							  0x00  , 0x00, 0x00, 0x00, 0x00	; 0x5F
 db			0x00, 0x00, 0x00, 0x00  , 0xA , 0x00				; 0x65
 			
 
-
+%include "vga.s"
