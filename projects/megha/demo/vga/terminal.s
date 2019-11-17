@@ -1,3 +1,45 @@
+; A DOS program that demostrates and prototypes all the operations that need to
+; be implemented into the Console.mod module of Megha Operating System.
+
+; Features:
+; * Cursor operations
+; * Scroll operations
+; * Curosor and Font attributes
+
+	org 0x100
+	jmp _start
+
+	%include "vga.s"
+
+_start:
+	mov al,0
+	mov bl,0
+	call set_cursor_location
+
+	mov ax,0x0
+	call set_attribute
+	mov ax,0xf
+	call set_attribute
+.again:
+	mov ah, 0
+	int 0x16
+
+	mov [string], al
+	mov bx, 1
+
+	cmp al, 0xD
+	jne .not_cr
+	mov [string+1],byte 0xA
+	mov bx, 2
+
+.not_cr:
+	mov ax, string
+	mov cx, 0
+	call write_term
+	jmp	.again
+
+string: resb 2
+
 ; Writes bytes to the console. It also interprets the CR, LF, H-TAB characters
 ; TODO: I need to implement a subset of the VT-100 escape sequence.
 ; Input:
@@ -28,52 +70,6 @@ write_term:
 	cmp al, 0x8		; Check if current character is BACKSPACE
 	je .backspace
 
-	jmp .normal
-
-.lf:
-	; Character is LF
-	inc byte [POSITION.row]
-	jmp .update
-
-.cr:
-	; Character is CR
-	mov [POSITION.column],byte 0
-	jmp .update
-.tab:
-	; Character is Horizontal Tab
-	add [POSITION.column], byte 4
-	jmp .update
-.backspace:
-	; Character is backspace
-	dec byte [POSITION.column]
-	jz .dec_row
-	jmp .update
-.dec_row:
-	mov [POSITION.column], byte COLUMNS -1
-	dec byte [POSITION.row]
-
-.update:		
-	; Before we change the cursor position, we write the text
-	; in the buffer at the current cursor position.
-	mov ax, .buffer
-	call write
-
-	; Previously, the below routine was called in the .lf block. This produced
-	; wrong result as we first scroll, then empty the buffer at the location as
-	; it was before the scroll. In effect it resulted in the gaggered lines,
-	; with the line previously written appearing above the line that is printed
-	; in the .update block, even tough they must come once after another.
-	call if_last_row_scroll_up_one_row	; row change is not applicable for CR
-										; character. But called for now.
-
-	mov al, [POSITION.column]
-	mov bl, [POSITION.row]
-	call set_cursor_location 
-
-	; Rest internal buffer index
-	xor bx, bx
-	jmp .next
-	
 .normal:
 	mov [.buffer + bx], al
 	inc bx
@@ -109,21 +105,118 @@ write_term:
 .end:
 	popa
 	ret	
+; ----------------------------------------------------
+.lf:
+	; Character is LF
+	inc byte [POSITION.row]
+	jmp .update
+.cr:
+	; Character is CR
+	mov [POSITION.column],byte 0
+	jmp .update
+.tab:
+	; Character is Horizontal Tab
+	add [POSITION.column], byte 4
+	cmp [POSITION.column], byte COLUMNS		; Check if last COLUMN is reached.	
+	jb .update
+	
+	; Reached the last column, increment row. 
+	; Will scroll if it is the last row.
+	sub [POSITION.column], byte COLUMNS		; Tab should continue to the next
+											; line. If we pressed tab on column
+											; 78, then 78 + 4 = 82. So next 
+											; letter should be at column 
+											; index 80 - 82 = 2, in the next
+											; line. Thus columns 78,79,0,1
+											; should be convered by the tab 
+											; key.
+	inc byte [POSITION.row]
+	jmp .update
+.backspace:
+	; Character is backspace
+	dec byte [POSITION.row]
+	jmp .update
+
+	dec byte [POSITION.column]
+	cmp [POSITION.column],byte 0	; We do not decrement row at column 0, 
+	jge .update						; We do a signed comparison. If column < 0
+									; then we decrement row.
+
+	; Column < 0
+	mov [POSITION.column], byte COLUMNS -1
+	dec byte [POSITION.row]
+
+	cmp [POSITION.row], byte 0
+	jge .update
+
+	; Cannot Backspace as we are already on the last row.
+	mov byte [POSITION.row], 0
+	mov byte [POSITION.column], 0
+	jmp .next						; No change was made, so no need to update.
+
+.update:		
+
+; Before we change the cursor position, we write the text
+; in the buffer at the current cursor position.
+	mov ax, .buffer
+	call write
+
+	; Previously, the below routine was called in the .lf block. This produced
+	; wrong result as we first scroll, then empty the buffer at the location as
+	; it was before the scroll. In effect it resulted in the gaggered lines,
+	; with the line previously written appearing above the line that is printed
+	; in the .update block, even tough they must come once after another.
+	mov al, [POSITION.last_row]
+	cmp [POSITION.row],al
+	jle .scroll_down_check			; row =< last_row (signed), 
+									; so we do not scroll up
+
+	call scroll_up_one_row			; row change is not applicable for CR
+									; character. But called for now.
+
+.scroll_down_check:
+	mov al, [POSITION.start_row]
+	cmp [POSITION.row], al			; Check is row < first_row (signed)
+	jge .set_cursor_location		; row >= first_row, so we dont scroll down.
+	
+	call scroll_down_one_row
+
+.set_cursor_location:
+	mov al, [POSITION.column]
+	mov bl, [POSITION.row]
+	call set_cursor_location 
+
+	;mov dl, [POSITION.row]
+	;mov dh, [POSITION.start_row]
+	;call printhex
+
+	; Rest internal buffer index
+	xor bx, bx
+	jmp .next
+; ----------------------------------------------------
 
 .buffer: resb 20
 .length: equ $ - .buffer
 
-if_last_row_scroll_up_one_row:
+scroll_up_one_row:
 	push ax
-		; Check if we have reached the end of the PAGE
-		mov al, [POSITION.last_row]
-		cmp [POSITION.row],al
-		jbe .end
-
 		; We are scrolling up because we have reached the end of the screen.
 		inc byte [POSITION.start_row]
 		inc byte [POSITION.last_row]
-		
+
+		; The below instruction is just to keep ensure invariables are
+		; preserved. 
+		; The scroll_up_one_row() routine is called in the .update block only
+		; when row > last_row (more specifically row = last_row + 1).
+		; So when we come at this point in the instruction row = last_row (we
+		; have incremented last_row above). 
+		; But in the odd chance, that one calls this routine without the check 
+		; in .update (mentioned above), we will have a broken our invariables. 
+		; The below instruction ensures invariables are preserved.
+		mov al, [POSITION.last_row]
+		mov [POSITION.row], al
+	
+		; Scroll up
 		mov ax, [POSITION.start_row]
 		call scroll_up
 
@@ -144,19 +237,73 @@ if_last_row_scroll_up_one_row:
 	pop ax
 	ret
 
+scroll_down_one_row:
+	push ax
+
+		dec byte [POSITION.start_row]
+		dec byte [POSITION.last_row]
+
+		; The below instruction is just to keep ensure invariables are
+		; preserved. 
+		; Line in the case of scroll_up, the .update block checks if 
+		; row < start_row (more specifically, row = start_row -1), before 
+		; calling scroll_down_one_row() routine. So at this point in the
+		; routine, row = start_row anyways. But without the above mentioned
+		; check, we have a broken invariable.
+		mov al, [POSITION.start_row]
+		mov [POSITION.row], al
+
+		cmp byte [POSITION.start_row],0		; Check if start row < 0
+		jl .reset							; start_row < 0, we reset
+		
+		mov al, [POSITION.start_row]
+		call scroll_down
+		jmp .end
+
+.reset:
+		mov [POSITION.start_row], byte 0
+		mov [POSITION.last_row], byte ROWS -1
+		mov [POSITION.row],byte 0
+.end:
+		;mov dx, [POSITION.start_row]
+		;call printhex
+	pop ax
+	ret
+
+; Prints 16 bit hex number
+; Input: DX
+printhex:
+	push gs
+	pusha	; push all general purpose registers
+
+		; setup the segment registers
+		mov bx, 0xb800
+		mov gs,bx
+
+		xor bx, bx
+		mov bl, [POSITION.last_row]	; load the current memory offset to write to.
+		imul bx, COLUMNS * 2
+		; the below loop will run 4 times.
+		mov cx, 4
+.again:
+		mov si, dx
+		shr si, 12
+		mov ax, [.hexchars+si]
+
+		mov [gs:bx],al
+		mov [gs:bx+1],byte 0xE
+		
+		add bx,2
+		shl dx,4
+		loop .again
+	popa
+	pop gs
+	ret
+
+.hexchars: db "0123456789ABCDEF"
+
 POSITION:						; -- INVARIANTS --
 	.row: db 0					; 0 <= row <= ROWS -1
 	.column: db 0				; 0 <= column <= COLUMNS -1
 	.start_row: db 0			; 0 <= start_row <= FIRST_ROW_LAST_PAGE
 	.last_row: db ROWS -1		; ROWS -1 <= last_row <= LAST_ROW_LAST_PAGE
-
-;COLUMNS: 80
-PAGES: EQU 1
-ROWS: EQU 25
-%if PAGES = 1
-	LAST_ROW_LAST_PAGE: EQU (PAGES * ROWS) -1
-%else
-	LAST_ROW_LAST_PAGE: EQU (PAGES * ROWS) -2
-%endif
-
-FIRST_ROW_LAST_PAGE: EQU (PAGES -1) * ROWS

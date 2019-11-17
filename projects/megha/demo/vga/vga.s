@@ -1,76 +1,21 @@
-; A DOS program that demostrates and prototypes all the operations that need to
-; be implemented into the Console.mod module of Megha Operating System.
 
-; Features:
-; * Cursor operations
-; * Scroll operations
-; * Parsing of \n\r\t values
-; * Operations to implement CR, LF and HTAB
+	COLUMNS: equ 80
+	ROWS: EQU 25
+	PAGES: EQU 1
 
-	org 0x100
-	;org 0x64
+	LAST_ROW_LAST_PAGE: EQU (PAGES * ROWS) -1
+	FIRST_ROW_LAST_PAGE: EQU (PAGES -1) * ROWS
 
-	%macro _out 2
-		push ax
-		push dx
-			mov dx, %1
-			mov al, %2
-			out dx, al
-		pop dx
-		pop ax
-	%endmacro
-	
-	jmp _start
+%macro _out 2
+	push ax
+	push dx
+		mov dx, %1
+		mov al, %2
+		out dx, al
+	pop dx
+	pop ax
+%endmacro
 
-	%include "terminal.s"
-_start:
-
-	push cs
-	pop ds
-
-	mov al, 14
-	mov ah, 15
-	call set_cursor_attribute
-
-	mov ax, 0x0
-	mov bx, 0
-	call set_cursor_location
-
-	mov ax, 0x9
-	call set_attribute
-
-.again:
-	xor ax, ax
-	int 0x16
-
-	mov [string], al
-	mov bx, 1
-
-	cmp al, 0xD
-	jne .any
-
-	mov [string + 1],byte 0xA
-	mov bx, 2
-.any:
-	mov ax, string
-	mov cx, 0
-	call write_term
-
-	jmp .again
-
-; Pause
-mov ah, 0
-int 0x16
-
-; exit dos
-mov ah, 0x4c
-int 0x21
-jmp $
-
-string: db "Arjob Mukherjee.",0xA,0xA,0xA,0xA,0xA,0xA,0xA,0xA,0xA,0xA
-		db 0xA,0xA,0xA,0xA,0xA,0xA,0xA,0xA,0xA,0xA,"Hello",
-		db 0xA,0xA,0xA,0xA, "Last line", 0xA, 0xA, "What",0xA, 0xA, "Final"
-len: equ $ - string
 
 ; Writes to the VGA memory. It also advances the cursor when needed.
 ; This routine, may also interpret Carriage return, Line Feed, and Tab
@@ -132,23 +77,18 @@ write:
 scroll_up:
 	pusha
 
-	xor ah, ah
 	; Check if we have reached the last page.
-	; If the first row + ROWS >= the last page row then we are working with the
-	; last page. The last page needs to be treated sepatately.
-	push ax
-		add ax, ROWS
-		cmp ax, (PAGES * ROWS)
-	pop ax
-	jae .last_page
+	; If the input row > first row of the last page, then that is an
+	; unreasonable request and is treated separately.
+	cmp al, FIRST_ROW_LAST_PAGE
+	ja .last_page
 
 	; We are not dealing with the last page. So scroll down is as simple as
 	; calling the set_origin method
-	imul ax, COLUMNS;
+	xor ah, ah
+	imul ax, COLUMNS	
 	call set_origin
 
-	;mov dx, 0x1111
-	;call printhex
 	jmp .end
 
 .last_page:
@@ -169,11 +109,7 @@ scroll_up:
 
 		; This is the total number of words from the first line to the 2nd last
 		; line.
-		%if PAGES = 1
-			mov cx, (PAGES * ROWS - 1) * COLUMNS
-		%else 
-			mov cx, (PAGES * ROWS - 2) * COLUMNS
-		%endif
+		mov cx, (PAGES * ROWS - 1) * COLUMNS
 		mov si, COLUMNS * 2			; This is the start of the very 2nd line.
 		mov di, 0					; This is the start of the very first line.
 		rep movsw					; Bytes from DS:SI will be copied to ES:DI
@@ -191,6 +127,23 @@ scroll_up:
 .end:
 	popa
 	ret
+
+; Scrolls down the content of the screen in such a way that the input row
+; becomes to top most one. The input is unsigned int, so we cannot do a less
+; than zero check. It is upto the terminal driver to do that kind of check,
+; before calling scroll_down.
+; Input:
+; 	AL - Top most row to display, i.e the row at the top of the screen.
+scroll_down:
+	push ax
+
+		xor ah, ah
+		imul ax, COLUMNS
+
+		call set_origin
+	pop ax
+	ret
+
 ; Sets the cursor location on the screen.
 ; This also updates the current location (MEM.now) as well to the proper value.
 ; Input:
@@ -256,18 +209,12 @@ set_origin:
 	ret
 
 ; Sets the attribute (Fore Color, Background Color and Blink)
-; Input:
-;	AL - Attributes. 
+; Attribute in memory:
 ;   |---|-----------|---------------|
 ;   | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
 ;   |---|-----------|---------------|
-;   | B | FG Color  | BG Color      |
+;   | B | BG Color  | FG Color      |
 ;   |---|-----------|---------------|
-;set_attribute:
-	;mov [ATTRIBUTE.value], al
-	;ret
-
-; Sets the attribute (Fore Color, Background Color and Blink)
 ; Input:
 ;	AH - Attribute selection ( 0 - FG color, 1 - BG Color, 2 - Blink)
 ;	AL - Attribute value
@@ -324,40 +271,9 @@ set_cursor_attribute:
 	pop ax
 	ret
 
-; Prints 16 bit hex number
-; Input: DX
-printhex:
-	push gs
-	pusha	; push all general purpose registers
-
-		; setup the segment registers
-		mov bx, 0xb800
-		mov gs,bx
-		mov bx, [MEM.now]
-		; the below loop will run 4 times.
-		mov cx, 4
-.again:
-		mov si, dx
-		shr si, 12
-		mov ax, [.hexchars+si]
-
-		mov [gs:bx],al
-		mov [gs:bx+1],byte 0xF
-		add [MEM.now], word 2
-		
-		add bx,2
-		shl dx,4
-		loop .again
-	popa
-	pop gs
-	ret
-.hexchars: db "0123456789ABCDEF"
-
 MEM: 
 	.seg equ 0xB800
 	.now dw 0
-
-COLUMNS: equ 80
 
 ATTRIBUTE:
 	.value: db 0xF
