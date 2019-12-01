@@ -1,8 +1,8 @@
 ; DOS program that enquires keyboard controller about the status of its input
 ; buffer.
 
-	org 0x64
-	;org 0x100
+	;org 0x64
+	org 0x100
 
 _init:
 	; clear the screen
@@ -26,9 +26,6 @@ _init:
 	; install our ISR in IVT
 	mov [gs:9*4], word kb_interrupt
 	mov [gs:9*4+2],cs
-
-	mov dl, '@'
-	call printchar
 
 	mov ax, 0x3
 	call set_attribute
@@ -59,8 +56,7 @@ _init:
 	test bl, byte PRESSED
 	jz .check
 
-	mov dl, cl
-	cmp dl, 0
+	cmp cl, 0
 	je .check
 
 	mov [string], cl
@@ -69,7 +65,7 @@ _init:
 	cmp cl, 0xA
 	jne .anykey
 	
-	; CR is received, we need to put LF as well.
+	; LF is received, we need to put CR as well.
 	mov [string + 1], byte 0xD
 	mov bx, 2
 
@@ -78,6 +74,8 @@ _init:
 	mov cx, 0
 	call write_term
 	;call printchar
+	;xor dx, dx
+	;mov dl, bl 
 	;call printhex
 
 	jmp .check
@@ -90,9 +88,9 @@ _init:
 	mov [gs:9*4+2],ax
 
 	; exit dos
-	retf
-	;mov ah, 0x4c
-	;int 0x21
+	;retf
+	mov ah, 0x4c
+	int 0x21
 
 string: dw 0
 
@@ -118,7 +116,7 @@ kb_interrupt:
 		jne .n1
 
 		or [key.flags], byte EXTENDED	; SET EXTENDED FLAG
-		jmp .endb						; We do not add 0xE0 to the output and
+		jmp .extended_get_next_key 		; We do not add 0xE0 to the output and
 										; A second interrupt will have the scan
 										; code of the Extended key.
 
@@ -180,17 +178,18 @@ kb_interrupt:
 		; ----------------------------------------
 
 		; --- Check for Left Shift Key
-		cmp al, key_codes.LSHIFT
+		cmp ah, key_codes.LSHIFT
 		je .n2a					; It is Left Shift Key
 
 		; --- Check for Right Shift key
-		cmp al, key_codes.RSHIFT
+		cmp ah, key_codes.RSHIFT
 		jne .n3					; Neither of the SHIFT keys
 .n2a:
 		; --- Check if pressed or released
 		test [key.flags], byte PRESSED	
 		jz .n2_rel			; SHIFT key is being released not pressed.
 
+		; SHIFT key is being PRESSED.
 		or [key.flags], byte SHIFT		; SET SHIFT Flag
 		jmp .end
 .n2_rel:
@@ -201,9 +200,13 @@ kb_interrupt:
 		; Check for CONTROL key press
 		; ----------------------------------------
 		
-		cmp al, key_codes.CTRL
-		jne .n4				; Not a CONTROL key
+		cmp ah, key_codes.LCTRL
+		je .n3_ctrl			; It is the Left CONTROL key
 
+		cmp ah, key_codes.RCTRL
+		jne .n4				; Not any of the CONTROL Keys.
+
+.n3_ctrl:
 		; --- Check if key is being pressed or released.
 		test [key.flags], byte PRESSED	
 		jz .n3_rel				; CONTROL key is being released 
@@ -219,9 +222,13 @@ kb_interrupt:
 		; Check for ALT key press
 		; ----------------------------------------
 		
-		cmp al, key_codes.ALT
-		jne .n5				; Not a ALT key
+		cmp ah, key_codes.LALT
+		je .n4_alt			; It is the Left ALT key
 
+		cmp ah, key_codes.RALT
+		jne .n5				; Not any of the ALT Keys, Continue
+
+.n4_alt:
 		; --- Check if key is being pressed or released.
 		test [key.flags], byte PRESSED	
 		jz .n4_rel			; Key is being released 
@@ -237,7 +244,7 @@ kb_interrupt:
 		; Check for CAPS LOCK key press
 		; ----------------------------------------
 
-		cmp al, key_codes.CAPS
+		cmp ah, key_codes.CAPS
 		jne .n6
 
 		xor bx, bx
@@ -282,7 +289,7 @@ kb_interrupt:
 		; Check for NUM LOCK key press
 		; ----------------------------------------
 
-		cmp al, key_codes.NUM
+		cmp ah, key_codes.NUM
 		jne .n7							; Not the NUM Lock
 
 		xor bx, bx
@@ -327,7 +334,7 @@ kb_interrupt:
 		; Check for SCROLL LOCK key press
 		; ----------------------------------------
 
-		cmp al, key_codes.SCROLL_LOCK
+		cmp ah, key_codes.SCROLL_LOCK
 		jne .end							; Not SCROLL Lock
 
 		mov bx, [key.scroll_state]
@@ -538,13 +545,21 @@ key_codes:
 	db 0x5F, 0x60, 0x61, 0x62, 0,0,0,0,0,0,0,0x63,0		; 0xA4
 	db 0x65												; 0xA5
 
-.LSHIFT: EQU 0x2A
-.RSHIFT: EQU 0x36
-.CAPS: EQU 0x3A
-.ALT: EQU 0x38
-.CTRL: EQU 0x1D
-.NUM: EQU 0x45
-.SCROLL_LOCK: EQU 0x46
+; The below contants are used to identify if LEFT SHIFT, CAPS, ALT keys are
+; pressed. Previously we used to perform this identification using Scan codes,
+; but that will make them hardwired to the keyboard hardware. 
+; To make the below contants independent of the keyboard hardware, 
+; we assign *Key Codes* to them.
+
+.LSHIFT: 		EQU 0x1C	;0x2A
+.RSHIFT: 		EQU 0x23	;0x36
+.CAPS: 	 		EQU 0x26	;0x3A
+.LALT: 	 		EQU 0x25	;0x38	
+.RALT: 	 		EQU 0x3E	;0x38	
+.LCTRL:			EQU 0x19	;0x1D	
+.RCTRL: 	 	EQU 0x3C	;0x1D
+.NUM:			EQU 0x3A	;0x45
+.SCROLL_LOCK: 	EQU 0x3B	;0x46
 
 ; -----------------------------------------------------------------
 ; Key code to ASCII Mapping
@@ -556,6 +571,11 @@ key_codes:
 
 
 ; Sets the ASCII Code for the key code.
+; Input: 
+;	Reads from Key.keycode, and Key.Flags
+; Output: 
+;	Modifies key.ASCII
+
 get_ascii:
 .no_modifier_keys:
 	push ax
@@ -602,9 +622,9 @@ get_ascii:
 		mov bl, [key.keycode]
 	
 		test [key.flags], byte CAPS
-		jz .normal 							; JUST SHIFT is PRESSED
+		jz .normal 							; CAPS is not PRESSED.
 
-		xor ax, ax
+		xor ax, ax							; CAPS is PRESSED.
 		mov al, [caps + bx]
 		jmp .end
 
@@ -625,7 +645,7 @@ get_ascii:
 		xor ax, ax
 		mov al, [normal + bx]
 .end:
-	mov [key.ascii], al
+		mov [key.ascii], al
 	pop bx
 	pop ax
 	ret
@@ -662,7 +682,7 @@ db		NONE, NONE, NONE, NONE, NONE, NONE								; 0x65
 normal:		
 			;0/8  1/9   2/A   3/B   4/C   5/D   6/E   7/F 
 db			0x00, 0x1B ,'123456'								; 0x7
-db			'7890'                  , 0x00, 0x00, 0x00, 0x00	; 0xF
+db			'7890'                  , 0x08, 0x09, 0x00, 0x00	; 0xF
 db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x17
 db			0xA , 0x00, ' ', "'" 	, 0x00, '-' ,  '+',  '-'	; 0x1F 
 db			',' , '.' , '/' , 0x00  , '*' , 0x00, 0x00, ';'		; 0x27
@@ -676,9 +696,9 @@ db			0x00, 0x00, 0x00, 0x00  , 0xA , 0x00				; 0x65
 shift:		
 			;0/8  1/9   2/A   3/B   4/C   5/D   6/E   7/F 
 db			0x00, 0x1B ,'!@#$%^'								; 0x7
-db			'&*()'                  , 0x00, 0x00, 0x61, 0x5E	; 0xF
-db			0x5F, 0x60, 0x5C, 0x00  , 0x5D, 0x3F, 0x40, 0x5B	; 0x17
-db			0xA , 0x00, 0x20, '"' 	, 0x00, '_' ,  '+',  '-'	; 0x1F 
+db			'&*()'                  , 0x08, 0x09, 0x00, 0x00	; 0xF
+db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x17
+db			0xA , 0x00, ' ' , '"' 	, 0x00, '_' ,  '+',  '-'	; 0x1F 
 db			'<' , '>' , '?' , 0x00  , '*' , 0x00, 0x00, ':'		; 0x27
 db			'+{|}~'    					  , 0x00, 0x00, 0x00	; 0x2F
 db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x37
@@ -690,9 +710,9 @@ db			0x00, 0x00, 0x00, 0x00  , 0xA , 0x00				; 0x65
 caps:		
 			;0/8  1/9   2/A   3/B   4/C   5/D   6/E   7/F 
 db			0x00, 0x1B ,'123456'								; 0x7
-db			'7890'                  , 0x00, 0x00, 0x61, 0x5E	; 0xF
-db			0x5F, 0x60, 0x5C, 0x00  , 0x5D, 0x3F, 0x40, 0x5B	; 0x17
-db			0xA , 0x00, 0x20, "'" 	, 0x00, '-' ,  '+',  '-'	; 0x1F 
+db			'7890'                  , 0x08, 0x09, 0x00, 0x00	; 0xF
+db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x17
+db			0xA , 0x00, ' ' , "'" 	, 0x00, '-' ,  '+',  '-'	; 0x1F 
 db			',' , '.' , '/' , 0x00  , '*' , 0x00, 0x00, ';'		; 0x27
 db			'=[\]`'    					  , 0x00, 0x00, 0x00	; 0x2F
 db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x37
@@ -704,9 +724,9 @@ db			0x00, 0x00, 0x00, 0x00  , 0xA , 0x00				; 0x65
 shift_caps:		
 			;0/8  1/9   2/A   3/B   4/C   5/D   6/E   7/F 
 db			0x00, 0x1B ,'!@#$%^'								; 0x7
-db			'&*()'                  , 0x00, 0x00, 0x61, 0x5E	; 0xF
-db			0x5F, 0x60, 0x5C, 0x00  , 0x5D, 0x3F, 0x40, 0x5B	; 0x17
-db			0xA , 0x00, 0x20, '"' 	, 0x00, '_' ,  '+',  '-'	; 0x1F 
+db			'&*()'                  , 0x08, 0x09, 0x00, 0x00	; 0xF
+db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x17
+db			0xA , 0x00, ' ' , '"' 	, 0x00, '_' ,  '+',  '-'	; 0x1F 
 db			'<' , '>' , '?' , 0x00  , '*' , 0x00, 0x00, ':'		; 0x27
 db			'+{|}~'    					  , 0x00, 0x00, 0x00	; 0x2F
 db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x37
@@ -718,8 +738,8 @@ db			0x00, 0x00, 0x00, 0x00  , 0xA , 0x00				; 0x65
 num:		
 			;0/8  1/9   2/A   3/B     4/C    5/D   6/E   7/F 
 db			0x00, 0x1B ,'123456'								; 0x7
-db			'7890'                  , 0x00, 0x00, '0123456789'	; 0x17
-db			0xA , 0x00, 0x20, "'" 	, 0x00, '-' ,  '+',  '-'	; 0x1F 
+db			'7890'                  , 0x08, 0x09, '0123456789'	; 0x17
+db			0xA , 0x00, ' ' , "'" 	, 0x00, '-' ,  '+',  '-'	; 0x1F 
 db			',' , '.' , '/' , 0x00  , '*' , 0x00, 0x00, ';'		; 0x27
 db			'=[\]`'    					  , 0x00, 0x00, 0x00	; 0x2F
 db			0x00, 0x00, 0x00, 0x00  , 0x00, 0x00, 0x00, 0x00	; 0x37
@@ -729,4 +749,4 @@ db							  0x00  , 0x00, 0x00, 0x00, 0x00	; 0x5F
 db			0x00, 0x00, 0x00, 0x00  , 0xA , 0x00				; 0x65
 			
 
-%include "vga.s"
+%include "terminal.s"
