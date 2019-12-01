@@ -1,21 +1,21 @@
-; A DOS program that demostrates and prototypes all the operations that need to
-; be implemented into the Console.mod module of Megha Operating System.
 
-; Features:
-; * Cursor operations
-; * Scroll operations
-; * Parsing of \n\r\t values
-; * Operations to implement CR, LF and HTAB
+	COLUMNS: equ 80
+	ROWS: EQU 25
+	PAGES: EQU 2
 
-	%macro _out 2
-		push ax
-		push dx
-			mov dx, %1
-			mov al, %2
-			out dx, al
-		pop dx
-		pop ax
-	%endmacro
+	LAST_ROW_LAST_PAGE: EQU (PAGES * ROWS) -1
+	FIRST_ROW_LAST_PAGE: EQU (PAGES -1) * ROWS
+
+%macro _out 2
+	push ax
+	push dx
+		mov dx, %1
+		mov al, %2
+		out dx, al
+	pop dx
+	pop ax
+%endmacro
+
 
 ; Writes to the VGA memory. It also advances the cursor when needed.
 ; This routine, may also interpret Carriage return, Line Feed, and Tab
@@ -40,7 +40,7 @@ write:
 
 		mov si, ax
 		mov di, [MEM.now]
-		mov ax, [ATTRIBUTE.value]
+		mov al, [ATTRIBUTE.value]
 .again:	
 		movsb
 		mov [es:di],al
@@ -68,30 +68,27 @@ write:
 	pop cx
 	ret
 
-; Scrolls down the screen.
+; Scrolls up the screen content, and the first line on the screen is the line
+; that is provided in the input. If the input row number (0 indexed) is in the 
+; last page or past the last line of the last page, then this routine will 
+; always make room for one line in the end. That is we scroll up one row.
 ; Input:
 ; 	AL - First row to display
 scroll_up:
 	pusha
 
-	xor ah, ah
 	; Check if we have reached the last page.
-	; If the first row + ROWS >= the last page row then we are working with the
-	; last page. The last page needs to be treated sepatately.
-	;mov dx, 0xbabe
-	;call printhex
-
-	push ax
-		add ax, ROWS
-		cmp ax, (PAGES * ROWS)
-	pop ax
-	jae .last_page
+	; If the input row > first row of the last page, then that is an
+	; unreasonable request and is treated separately.
+	cmp al, FIRST_ROW_LAST_PAGE
+	ja .last_page
 
 	; We are not dealing with the last page. So scroll down is as simple as
 	; calling the set_origin method
-	imul ax, COLUMNS;
-
+	xor ah, ah
+	imul ax, COLUMNS	
 	call set_origin
+
 	jmp .end
 
 .last_page:
@@ -103,20 +100,50 @@ scroll_up:
 
 	; From the start to the end, there are 25 * 8 = 200 lines. We will do till
 	; the 2nd last line, so 199th line.
+	push es
+	push ds
+		; Setup the segment registers
+		mov bx, MEM.seg
+		mov ds, bx
+		mov es, bx
+
+		; This is the total number of words from the first line to the 2nd last
+		; line.
+		mov cx, (PAGES * ROWS - 1) * COLUMNS
+		mov si, COLUMNS * 2			; This is the start of the very 2nd line.
+		mov di, 0					; This is the start of the very first line.
+		rep movsw					; Bytes from DS:SI will be copied to ES:DI
+									; DS = ES = 0xB800
+									; We will keep coping till the start of the
+									; very last line of the last page.
 	
-	mov cx, (PAGES * ROWS) -1;
-	mov si, COLUMNS * 2			; This is the start of the very 2nd line.
-	mov di, 0					; This is the start of the very first line.
-	rep movsb					; We will keep coping till the start of the
-								; very last line of the last page.
-	
-	; Now we make the last line blank.
-	mov cx, COLUMNS * 2
-	mov al, 0
-	rep stosb
+		; Now we make the last line blank.
+		mov cx, COLUMNS
+		mov al, 0
+		mov ah, [ATTRIBUTE.value]
+		rep stosw
+	pop ds
+	pop es
 .end:
 	popa
 	ret
+
+; Scrolls down the content of the screen in such a way that the input row
+; becomes to top most one. The input is unsigned int, so we cannot do a less
+; than zero check. It is upto the terminal driver to do that kind of check,
+; before calling scroll_down.
+; Input:
+; 	AL - Top most row to display, i.e the row at the top of the screen.
+scroll_down:
+	push ax
+
+		xor ah, ah
+		imul ax, COLUMNS
+
+		call set_origin
+	pop ax
+	ret
+
 ; Sets the cursor location on the screen.
 ; This also updates the current location (MEM.now) as well to the proper value.
 ; Input:
@@ -182,18 +209,12 @@ set_origin:
 	ret
 
 ; Sets the attribute (Fore Color, Background Color and Blink)
-; Input:
-;	AL - Attributes. 
+; Attribute in memory:
 ;   |---|-----------|---------------|
 ;   | 7 | 6 | 5 | 4 | 3 | 2 | 1 | 0 |
 ;   |---|-----------|---------------|
-;   | B | FG Color  | BG Color      |
+;   | B | BG Color  | FG Color      |
 ;   |---|-----------|---------------|
-;set_attribute:
-	;mov [ATTRIBUTE.value], al
-	;ret
-
-; Sets the attribute (Fore Color, Background Color and Blink)
 ; Input:
 ;	AH - Attribute selection ( 0 - FG color, 1 - BG Color, 2 - Blink)
 ;	AL - Attribute value
@@ -254,8 +275,6 @@ MEM:
 	.seg equ 0xB800
 	.now dw 0
 
-COLUMNS: equ 80
-
 ATTRIBUTE:
 	.value: db 0xF
 
@@ -263,4 +282,3 @@ CURSOR:
 	.location: dw 0
 	.CD_ON: EQU 0b_0010_0000
 
-%include "terminal.s"
