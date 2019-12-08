@@ -30,25 +30,37 @@ _init:
 	mov ax, 0x3
 	call set_attribute
 .check:	
-	; Check if any key was pressed
-	cmp [dirty], byte 1
-	jne .check
 
-	; -------------------------
-	; Rest the dirty flag
-	; -------------------------
-	mov [dirty], byte 0
+	mov dh, [keyboard_queue + Q.head]
+	mov dl, [keyboard_queue + Q.tail]
+	call printhex
 
+	mov cx, 0x2
+	mov dx, 0xA0
+	mov ah, 0x86
+	int 0x15
+
+	; Ask the keyboard to return from the queue.
+	; If there are no items, it returns 0
+	mov ax, keyboard_queue_item			; Store here
+	mov bx, 4							; Read 4 bytes from the buffer
+	mov cx, 0							; Store at offset 0 bytes
+	call keyboard_read_queue
+
+	cmp ax, 0		; No items in the queue
+	je .check
+	
 	; -------------------------
 	; Read ASCII code
 	; -------------------------
-	xor dx, dx
-
-	cli
-		mov al, [key.keycode]
-		mov bl, [key.flags]
-		mov cl, [key.ascii]
-	sti
+	mov al, [keyboard_queue_item + kQi.keycode]
+	mov bl, [keyboard_queue_item + kQi.flags]
+	mov cl, [keyboard_queue_item + kQi.ascii]
+	
+	;mov dl, cl
+	;call printchar
+	;mov dx, [keyboard_queue_item + kQi.keycode]
+	;call printhex
 
 	cmp al, 1
 	je .end
@@ -72,11 +84,7 @@ _init:
 .anykey:
 	mov ax, string
 	mov cx, 0
-	call write_term
-	;call printchar
-	;xor dx, dx
-	;mov dl, bl 
-	;call printhex
+	call write_vga
 
 	jmp .check
 
@@ -92,6 +100,7 @@ _init:
 	mov ah, 0x4c
 	int 0x21
 
+keyboard_queue_item: resb 4
 string: dw 0
 
 kb_interrupt:
@@ -396,15 +405,12 @@ kb_interrupt:
 
 		call [modifiers_routines + bx]
 
-		;test [key.flags], byte PRESSED
-		;jz .cont
-
-		;mov dl, [key.ascii]
-		;call printchar
-
 .cont:
 		; We add to the queue here
-		mov [dirty], byte 1
+		mov ax, key
+		mov bx, keyboard_queue
+		call queue_put
+
 
 		; CLEAR EXTENDED Flag
 		; EXTENDED Flag is just an indication that the current keycode is part
@@ -418,6 +424,7 @@ kb_interrupt:
 
 	popa
 	iret
+
 .jtable_nums: dw .nums_case0, .nums_case1, .nums_case2, .nums_case3
 .jtable_caps: dw .caps_case0, .caps_case1, .caps_case2, .caps_case3
 .jtable_scroll: dw .scroll_case0, .scroll_case1, .scroll_case2, .scroll_case3
@@ -431,6 +438,65 @@ wait_kbd:
 	pop ax
 	ret
 
+; Reads from the keyboard queue
+; Input
+; 	DS:AX	- Location to copy items from the buffer
+; 	BX		- Number of bytes to be read from the queue. 
+;			  If not a multiple of 4, BX is floor(BX / 4). 4 is the WIDTH of
+;			  the keybaord queue.
+;	CX		- Bytes offset in the output buffer.
+;			  First byte copied will be at DS:AX + CX
+; Output:
+;	AX		- Number of bytes returned.
+keyboard_read_queue:
+	push cx
+	push bx
+	push di
+	push dx
+
+	; AX cannot be part of effective addressing, we copy it to DI
+	mov di, ax
+	add di, cx		; Add the offset (CX is the number of bytes)
+
+	; Copy the count to CX for easier manupulation
+	; Note: if BX = 3, then after the below DIV, BX = 0 (Nothing is read)
+	push ax
+		xor dx, dx
+		mov ax, bx
+		div word [CS:keyboard_queue + Q.width]
+		mov bx, ax
+	pop ax
+
+	mov cx, bx
+
+	; DX holds the number of bytes copied from queue
+	xor dx, dx		; Clear DX register.
+
+	; If CX is 0, we go to the end.
+	jcxz .end	
+
+.again:
+	mov ax, di
+	mov bx, keyboard_queue
+	call queue_get		; AX - Pointer to destination, BX - Pointer to queue.
+	
+	cmp ax, 0
+	je .end
+
+	add di, ax		; AX = number of bytes in quue item. Increment destination
+					; address to get the next write location.
+	add dx, ax		; Increment byte count
+	loop .again
+
+.end:
+	mov ax, dx		; AX returns the number of bytes copied
+
+	pop dx
+	pop di
+	pop bx
+	pop cx
+	ret
+
 ; Prints 16 bit hex number
 ; Input: DX
 printhex:
@@ -440,7 +506,9 @@ printhex:
 		; setup the segment registers
 		mov bx, 0xb800
 		mov gs,bx
-		mov bx, [cpos]	; load the current memory offset to write to.
+		;mov bx, [cpos]	; load the current memory offset to write to.
+		mov bx, 0x780	; 24th Line, 1st column
+
 		; the below loop will run 4 times.
 		mov cx, 4
 .again:
@@ -456,7 +524,6 @@ printhex:
 		loop .again
 
 		add bx, 2	; leave a blank
-		mov [cpos],bx
 	popa
 	pop gs
 	ret
@@ -481,85 +548,6 @@ printchar:
 	popa
 	pop gs
 	ret
-
-NUM: EQU 0x1
-CAPS: EQU 0x2
-SHIFT: EQU 0x4
-CTRL: EQU 0x8
-ALT: EQU 0x10
-SCROLL_LOCK: EQU 0x20
-EXTENDED: EQU 0x40
-PRESSED: EQU 0x80
-
-SCROLL_LED: EQU 0x1
-NUM_LED: EQU 0x2
-CAPS_LED: EQU 0x4
-
-old_kb_int_offset: dw 1
-old_kb_int_seg: dw 1
-dirty: db 0
-
-key:
-	.flags db 0
-	.scancode db 0
-	.keycode db 0
-	.leds db 0
-	.caps_state db 0
-	.nums_state db 0
-	.scroll_state db 0
-	.ascii db 0
-
-; -----------------------------------------------------------------
-; Scan code to Key code map
-; Legend: 
-;		  Numbers      : 0		   --> 0xB
-;						 1 - 9     --> 0x2 0xA
-;		  Num KeyPad   : 0 - 4     --> 0x10 to 0x14
-;   				   : 5         --> 0x6
-; 					   : 6 - 9	   --> 0x16 - 0x19
-;		  Arrow Keys   : Down      --> 0x12
-;					   : Left      --> 0x14
-;					   : Right     --> 0x16
-;					   : Up        --> 0x18
-;         Characters   : A - Z     --> 0x41 to 0x5A
-;		  Function keys: F1 to F10 --> 0x61 to 0x6C
-;		  Delete Key   :           --> 0x6D
-; -----------------------------------------------------------------
-key_codes:
-	db 0,1,2,3,4,5,6,7									; 0x7
-	db 8, 9,0xA,0xB,0x1D,0x28,0xC			 			; 0xE
-	db 0xD, 'Q', 'W', 'E', 'R', 'T'						; 0x14
-	db 'Y', 'U', 'I', 'O', 'P', 0x29					; 0x1A
-	db 0x2B,0x18, 0x19,'A','S','D','F'					; 0x21
-	db 'G','H','J','K','L',0x27, 0x1B, 0x2C				; 0x29
-	db 0x1C, 0x2A, 'Z', 'X', 'C', 'V', 'B'				; 0x30
-	db 'N', 'M', 0x20, 0x21, 0x22, 0x23, 0x24			; 0x37
-	db 0x25, 0x1A, 0x26, 0x2D, 0x2E, 0x2F				; 0x3D
-	db 0x30, 0x31, 0x32, 0x33, 0x34, 0x35				; 0x43
-	db 0x36, 0x3A, 0x3B, 0x15, 0x16, 0x17, 0x1F			; 0x4A
-	db 0x12, 0x13, 0x14, 0x1E, 0xF, 0x10, 0x11, 0xE     ; 0x52
-	db 0x39,0,0,0,0x37,0x38,0,0,0,0,0,0,0,0,0,0,0x00	; 0x63
-	db 0x64, 0x3C,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 ; 0x78
-	db 0,0,0,0,0,0,0x3D, 0x3E, 0,0,0,0,0,0,0,0,0,0		; 0x8A
-	db 0,0,0,0,0x3F,0x40,0x5B, 0,0x5C,0,0x5D,0,0x5E		; 0x97
-	db 0x5F, 0x60, 0x61, 0x62, 0,0,0,0,0,0,0,0x63,0		; 0xA4
-	db 0x65												; 0xA5
-
-; The below contants are used to identify if LEFT SHIFT, CAPS, ALT keys are
-; pressed. Previously we used to perform this identification using Scan codes,
-; but that will make them hardwired to the keyboard hardware. 
-; To make the below contants independent of the keyboard hardware, 
-; we assign *Key Codes* to them.
-
-.LSHIFT: 		EQU 0x1C	;0x2A
-.RSHIFT: 		EQU 0x23	;0x36
-.CAPS: 	 		EQU 0x26	;0x3A
-.LALT: 	 		EQU 0x25	;0x38	
-.RALT: 	 		EQU 0x3E	;0x38	
-.LCTRL:			EQU 0x19	;0x1D	
-.RCTRL: 	 	EQU 0x3C	;0x1D
-.NUM:			EQU 0x3A	;0x45
-.SCROLL_LOCK: 	EQU 0x3B	;0x46
 
 ; -----------------------------------------------------------------
 ; Key code to ASCII Mapping
@@ -650,20 +638,179 @@ get_ascii:
 	pop ax
 	ret
 
-NONE: EQU 0
-M_SHIFT: EQU 1
-M_SCAPS: EQU 2
-M_CAPS: EQU 3
-M_NUM: EQU 4
-
 modifiers_routines: 
 dw					get_ascii.no_modifier_keys
 dw					get_ascii.shift_modified_keys
 dw					get_ascii.shift_caps_modified_keys
 dw					get_ascii.caps_modified_keys
 dw					get_ascii.num_modified_keys
-				
+
+old_kb_int_offset: dw 1
+old_kb_int_seg: dw 1
+
+; Keyboard Queue Item structure (4 bytes)
+struc kQi		
+	.flags:		resb 1
+	.scancode:	resb 1
+	.keycode:	resb 1
+	.ascii:		resb 1
+endstruc
+
+key:
+	
+; ==========================================================
+; Keyboard queue item consists of 4 bytes:
+; |   3   |   2      |   1     |   0   |
+; |-------|----------|---------|-------|
+; | Flags | scancode | keycode | ascii |
+; |-------|----------|---------|-------|
+;
+; These 4 bytes will be added to the queue everytime a key is 
+; pressed or released. If the keyboard buffer is full, then 
+; no new key gets added to the queue. Repeating keys also add 
+; the same 4 bytes.
+; ==========================================================
+
+; |---------------- Flags Bit Map --------------------|
+; |    7  |    6   |    5     | 4 | 3  |  2  | 1  | 0 |
+; |-------|--------|----------|---|----|-----|----|---|
+; |Pressed|Extended|ScrollLock|ALT|CTRL|SHIFT|CAPS|NUM|
+; |-------|--------|----------|---|----|-----|----|---|
+	.flags db 0			
+		NUM: EQU 0x1
+		CAPS: EQU 0x2
+		SHIFT: EQU 0x4
+		CTRL: EQU 0x8
+		ALT: EQU 0x10
+		SCROLL_LOCK: EQU 0x20
+		EXTENDED: EQU 0x40
+		PRESSED: EQU 0x80
+	.scancode db 0
+	.keycode db 0
+	.ascii db 0
+; ==========================================================
+; For use only by driver
+; ==========================================================
+	.leds db 0
+		SCROLL_LED: EQU 0x1
+		NUM_LED: EQU 0x2
+		CAPS_LED: EQU 0x4
+	.caps_state db 0
+	.nums_state db 0
+	.scroll_state db 0
+	; -----------------------------------
+
+
+keyboard_queue:
+	.length:	dw 40
+	.width:		dw 4
+	.head:		dw 0
+	.tail:		dw 0
+	.buffer:	resb 160
+
+; -----------------------------------------------------------------
+; Scan code to Key code map
+; Legend: 
+;		  Numbers      : 0		   --> 0xB
+;						 1 - 9     --> 0x2 0xA
+;		  Num KeyPad   : 0 - 9     --> 0xE to 0x17
+;         Space        :           --> 0x1A
+;		  Function keys: F1 to F12 --> 0x2D to 0x38
+;         Characters   : A - Z     --> 0x41 to 0x5A
+;		  Arrow Keys   : Down      --> 0x5F
+;					   : Left      --> 0x5C
+;					   : Right     --> 0x5D
+;					   : Up        --> 0x40
+;		  Delete Key   :           --> 0x62
+;         Win          :           --> 0x63
+;         Menu         :           --> 0x65
+;         Enter        : Normal    --> 0x18
+;                      : NumPad    --> 0x64
+; Extended Keys:
+;		  Because Extended Keys can have same Scan Codes as 
+;		  another key in the keyboard (but some are unique)
+;			|===========|==========|
+;		  	| Scan code |   Key    |
+;			|===========|==========|
+;			|   0x5B    |  Windows |
+;			|-----------|----------|
+;			|   0x5D    |  Menu    |
+;			|-----------|----------|
+;			|   0x1D	| L Control|
+;			|-----------|----------|
+;			|   0x1D    | R Control|
+;			|===========|==========|
+;
+; 		  In order to use the existing mapping table (below), We Shift the 
+;		  scan codes of Extended keys so that the modified scan codes, all 
+;		  start at location 0x64 (the last scan code ended at 0x58 (F12)).
+;
+;		  0x64 was chosen as it is larger than than the largest scan code, 
+;		  there is no other reason. 
+;
+;		  This means that the Extended Key with the lowest Scan code starts at
+;		  location 0x64. (0x1C is the lowest)
+;
+;		  Modified Scan code: [Scan Code (byte 2)] + 100 - 0x1C
+;		  ------------------
+;
+;		  Drawbacks:
+;		  ----------
+;		  This method however does nothing to make the extended keys closer, so
+;		  that less space is wasted.
+;		 
+; -----------------------------------------------------------------
+key_codes:
+; The below contants are used to identify if LEFT SHIFT, CAPS, ALT keys are
+; pressed. Previously we used to perform this identification using Scan codes,
+; but that will make them hardwired to the keyboard hardware. 
+; To make the below contants independent of the keyboard hardware, 
+; we assign *Key Codes* to them.
+
+	;-------------|-----------|
+	; Constant    | Key Codes |
+	;-------------|-----------|
+	.LSHIFT: 		EQU 0x1C 
+	.RSHIFT: 		EQU 0x23
+	.CAPS: 	 		EQU 0x26	
+	.LALT: 	 		EQU 0x25	
+	.RALT: 	 		EQU 0x3E
+	.LCTRL:			EQU 0x19	
+	.RCTRL: 	 	EQU 0x3C	
+	.NUM:			EQU 0x3A	
+	.SCROLL_LOCK: 	EQU 0x3B	
+	;-------------|----------|
+
+	db 0,1,2,3,4,5,6,7									; 0x7
+	db 8, 9,0xA,0xB,0x1D,0x28,0xC			 			; 0xE
+	db 0xD, 'Q', 'W', 'E', 'R', 'T'						; 0x14
+	db 'Y', 'U', 'I', 'O', 'P', 0x29					; 0x1A
+	db 0x2B,0x18, 0x19,'A','S','D','F'					; 0x21
+	db 'G','H','J','K','L',0x27, 0x1B, 0x2C				; 0x29
+	db 0x1C, 0x2A, 'Z', 'X', 'C', 'V', 'B'				; 0x30
+	db 'N', 'M', 0x20, 0x21, 0x22, 0x23, 0x24			; 0x37
+	db 0x25, 0x1A, 0x26, 0x2D, 0x2E, 0x2F				; 0x3D
+	db 0x30, 0x31, 0x32, 0x33, 0x34, 0x35				; 0x43
+	db 0x36, 0x3A, 0x3B, 0x15, 0x16, 0x17, 0x1F			; 0x4A
+	db 0x12, 0x13, 0x14, 0x1E, 0xF, 0x10, 0x11, 0xE     ; 0x52
+	db 0x39,0,0,0,0x37,0x38,0,0,0,0,0,0,0,0,0,0,0x00	; 0x63
+	;   -----------------------------------------------
+	; [ Extended keys: Modified Scan codes to Key Codes ]
+	;   -----------------------------------------------
+	db 0x64, 0x3C,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 ; 0x78
+	db 0,0,0,0,0,0,0x3D, 0x3E, 0,0,0,0,0,0,0,0,0,0		; 0x8A
+	db 0,0,0,0,0x3F,0x40,0x5B, 0,0x5C,0,0x5D,0,0x5E		; 0x97
+	db 0x5F, 0x60, 0x61, 0x62, 0,0,0,0,0,0,0,0x63,0		; 0xA4
+	db 0x65												; 0xA5
+
 modifier_maps:
+
+	NONE:	 	EQU 0	; Keys that never change its meaning or function.
+	M_SHIFT:	EQU 1	; Keys that change behaviour when SHIFT is pressed.
+	M_SCAPS:	EQU 2	; Keys that change behaviour depending on both SHIFT and CAPS LOCK.
+	M_CAPS:		EQU 3	; Keys that change behaviour depending on CAPS LOCK.
+	M_NUM:		EQU 4	; Keys that change behaviour depending on NUMS LOCK.
+
 		;0/8  1/9   2/A   3/B   4/C   5/D   6/E   7/F 
 db		NONE, NONE, M_SHIFT,M_SHIFT,M_SHIFT,M_SHIFT,M_SHIFT,M_SHIFT		; 0x7
 db		M_SHIFT,M_SHIFT,M_SHIFT,M_SHIFT,NONE, NONE, M_NUM,  M_NUM		; 0xF
@@ -749,4 +896,5 @@ db							  0x00  , 0x00, 0x00, 0x00, 0x00	; 0x5F
 db			0x00, 0x00, 0x00, 0x00  , 0xA , 0x00				; 0x65
 			
 
+%include "queue.s"
 %include "terminal.s"
