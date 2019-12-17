@@ -8,13 +8,93 @@
 
 	%include "vga.s"
 
+; Writes to the terminal OUT Queue or directly to VGA if buffering is disabled.
+; Input:
+;	DS:AX	- Input data location
+;	BX		- Number of bytes to write
+;	CX		- Offset in bytes in the input buffer
+sys_term_term:
+	
+	ret
+
+; Reads from the keyboard queue. It reads multiple of 
+; Input Queue Width (4 bytes). We are going to read AT-MOST BX bytes.
+;
+; Input:
+;	DS:AX	- Output data location
+;	BX		- Number of bytes to read.
+;			  If this is not a multiple of 4, BX is floor(BX / 4).
+;	CX		- Offset in bytes in the output buffer
+;			  First byte copied will be at DS:AX + CX
+; Output:
+;	AX		- Number of bytes returned
+sys_term_read:
+	push di
+	push cx
+	push bx
+	push dx
+
+	mov dh, [CS:IN_QUEUE + Q.head]
+	mov dl, [CS:IN_QUEUE + Q.tail]
+	call printhex
+
+	mov di, ax		; AX cannot be used for Effective address calculations
+	add ax, cx		; Add offset to the output location.
+
+	; We will use CX for keeping track of the number of bytes read.
+	; Note: If BX = 3, then after the below DIV, BX = 0 (Nothing will be read)
+	push dx
+		xor dx, dx
+		mov ax, bx
+		div word [CS:IN_QUEUE + Q.width]
+		mov bx, ax
+	pop dx
+	mov cx, bx		; CX will be used to keep track of the number of bytes
+
+	xor dx, dx		; We are counting the number of bytes read in DX
+	
+	jcxz .end		; CX = 0; we end
+.again:
+	mov ax, di
+	mov bx, IN_QUEUE
+	call queue_get	; DS:AX - Pointer to destination, CS:BX - Pointer to queue.
+
+	cmp ax, 0
+	je .end
+
+	add di, ax		; AX = number of bytes in the queue item. Increment
+					; destination address to get the next write locaiton.
+	add dx, ax		; Increment the bytes count
+	loop .again
+.end:
+	mov ax, dx		; Return the number of bytes copied
+
+	pop dx
+	pop bx
+	pop cx
+	pop di
+	ret
+
+; Adds a key (4 bytes) to the IN queue.
+; It also processes CTRL + C and can use used to terminate the current process.
+; Input:
+;	DS:AX	- Pointer to the key bytes
+; Ouput:
+;	None
+sys_term_keyboard_hook:
+	push bx
+		mov bx, IN_QUEUE
+		call queue_put
+	pop bx
+	ret
+
 ; Writes bytes to the console. It also interprets the CR, LF, H-TAB characters
 ; TODO: I need to implement a subset of the VT-100 escape sequence.
 ; Input:
-;	DS:AX - Input buffer location
-;	BX  - Length, Number of bytes to write
-;	CX - Offset in the input buffer
-write_term:
+;	DS:AX 	- Input buffer location
+;	BX  	- Length, Number of bytes to write
+;	CX 		- Offset in the input buffer
+write_vga:
 	pusha
 
 	mov si, ax		
@@ -60,7 +140,7 @@ write_term:
 	; Internal buffer is full. We send the complete buffer to the console
 	mov ax, .buffer
 	mov bx, .length
-	call write
+	call sys_vga_write
 
 	; Reset the internal buffer value. Should start from the top.
 	xor bx, bx
@@ -69,7 +149,7 @@ write_term:
 
 	; We write what ever is in the buffer.
 	mov ax, .buffer
-	call write
+	call sys_vga_write
 .end:
 	popa
 	ret	
@@ -117,6 +197,7 @@ write_term:
 	cmp [POSITION.row], byte 0
 	jge .update
 
+	; Row < 0
 	; Cannot Backspace as we are already on the last row.
 	mov byte [POSITION.row], 0
 	mov byte [POSITION.column], 0
@@ -127,7 +208,9 @@ write_term:
 ; Before we change the cursor position, we write the text
 ; in the buffer at the current cursor position.
 	mov ax, .buffer
-	call write
+	call sys_vga_write
+
+	; SCROLL UP NEEDED??
 
 	; Previously, the below routine was called in the .lf block. This produced
 	; wrong result as we first scroll, then empty the buffer at the location as
@@ -142,6 +225,7 @@ write_term:
 	call scroll_up_one_row			; row change is not applicable for CR
 									; character. But called for now.
 
+	; SCROLL DOWN NEEDED??
 .scroll_down_check:
 	mov al, [POSITION.start_row]
 	cmp [POSITION.row], al			; Check is row < first_row (signed)
@@ -152,13 +236,10 @@ write_term:
 .set_cursor_location:
 	mov al, [POSITION.column]
 	mov bl, [POSITION.row]
-	call set_cursor_location 
+	call sys_vga_set_cursor_location 
 
-	;mov dl, [POSITION.row]
-	;mov dh, [POSITION.start_row]
-	;call printhex
-
-	; Rest internal buffer index
+	; We just flushed out the entire buffer.
+	; Rest internal buffer index.
 	xor bx, bx
 	jmp .next
 ; ----------------------------------------------------
@@ -186,7 +267,7 @@ scroll_up_one_row:
 	
 		; Scroll up
 		mov ax, [POSITION.start_row]
-		call scroll_up
+		call sys_vga_scroll_up
 
 		; Check if we have gone to the last page.
 		; If we have then start_row must be the first line of the last page.
@@ -225,7 +306,7 @@ scroll_down_one_row:
 		jl .reset							; start_row < 0, we reset
 		
 		mov al, [POSITION.start_row]
-		call scroll_down
+		call sys_vga_scroll_down
 		jmp .end
 
 .reset:
@@ -233,13 +314,30 @@ scroll_down_one_row:
 		mov [POSITION.last_row], byte ROWS -1
 		mov [POSITION.row],byte 0
 .end:
-		;mov dx, [POSITION.start_row]
-		;call printhex
 	pop ax
 	ret
 
 POSITION:						; -- INVARIANTS --
-	.row: db 0					; 0 <= row <= ROWS -1
-	.column: db 0				; 0 <= column <= COLUMNS -1
+	.row: 		db 0			; 0 <= row <= ROWS -1
+	.column: 	db 0			; 0 <= column <= COLUMNS -1
 	.start_row: db 0			; 0 <= start_row <= FIRST_ROW_LAST_PAGE
-	.last_row: db ROWS -1		; ROWS -1 <= last_row <= LAST_ROW_LAST_PAGE
+	.last_row: 	db ROWS -1		; ROWS -1 <= last_row <= LAST_ROW_LAST_PAGE
+
+IN_CONFIG: 	db 1
+OUT_CONFIG: db 1
+
+IN_QUEUE:
+	.length:	dw 60
+	.width:		dw 4
+	.head:		dw 0
+	.tail:		dw 0
+	.buffer:	resb 240
+
+OUT_QUEUE:
+	.length:	dw 40
+	.width:		dw 1
+	.head:		dw 0
+	.tail:		dw 0
+	.buffer:	resb 40
+
+%include "queue.s"

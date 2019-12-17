@@ -18,13 +18,10 @@
 
 
 ; Writes to the VGA memory. It also advances the cursor when needed.
-; This routine, may also interpret Carriage return, Line Feed, and Tab
-; characters as well. I am not really sure where to do the CR, LF, and HTAB
-; character processing. Shoud I do it in the Terminal driver?? 
 ; Input:
 ; 	DS:AX - Buffer location.
 ;	BX - Buffer length
-write:
+sys_vga_write:
 	push cx
 		mov cx, bx			; We need to copy these many bytes
 		jcxz .empty			; We end, if length provided is zero
@@ -74,7 +71,7 @@ write:
 ; always make room for one line in the end. That is we scroll up one row.
 ; Input:
 ; 	AL - First row to display
-scroll_up:
+sys_vga_scroll_up:
 	pusha
 
 	; Check if we have reached the last page.
@@ -87,7 +84,7 @@ scroll_up:
 	; calling the set_origin method
 	xor ah, ah
 	imul ax, COLUMNS	
-	call set_origin
+	call vga_set_origin
 
 	jmp .end
 
@@ -134,13 +131,13 @@ scroll_up:
 ; before calling scroll_down.
 ; Input:
 ; 	AL - Top most row to display, i.e the row at the top of the screen.
-scroll_down:
+sys_vga_scroll_down:
 	push ax
 
 		xor ah, ah
 		imul ax, COLUMNS
 
-		call set_origin
+		call vga_set_origin
 	pop ax
 	ret
 
@@ -149,7 +146,7 @@ scroll_down:
 ; Input:
 ; 	Al - Column number (starts from 0)
 ;	Bl - Row number (starts from 0)
-set_cursor_location:
+sys_vga_set_cursor_location:
 	push ax
 	push bx
 		
@@ -198,7 +195,7 @@ __set_cursor_location:
 ; beginning and also can be used for vertical scrolling.
 ; Input:
 ;	AX - Offset value
-set_origin:
+vga_set_origin:
 	; 1. Set the low byte into the VGA Start Memory Register
 	_out 0x3d4, 0xD
 	_out 0x3d5, al
@@ -218,7 +215,7 @@ set_origin:
 ; Input:
 ;	AH - Attribute selection ( 0 - FG color, 1 - BG Color, 2 - Blink)
 ;	AL - Attribute value
-set_attribute:
+sys_vga_set_attribute:
 	cmp ah, 0
 	je .fg_color
 
@@ -251,7 +248,7 @@ set_attribute:
 ; Input:
 ;	AL - Cursor start scan line
 ;	AH - Cursor end scan line
-set_cursor_attribute:
+sys_vga_set_cursor_attribute:
 	push ax
 	; Set the Cursor Start Register
 	; We will set the CD (Cursor Display) bit to 1
